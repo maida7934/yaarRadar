@@ -29,8 +29,8 @@ export function ConnectionLine({ x1, y1, x2, y2 }: ConnectionLineProps) {
         y1={y1}
         x2={x2}
         y2={y2}
-        stroke="currentColor"
-        className="text-zinc-300 dark:text-zinc-700"
+        stroke="white"
+        strokeOpacity={0.85}
         strokeWidth={1.5}
         strokeDasharray="4 3"
         strokeLinecap="round"

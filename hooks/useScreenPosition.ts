@@ -14,6 +14,14 @@ interface UseScreenPositionOptions {
   closenessToY: (closeness: number) => number;
 }
 
+// Position alone (just moving up/down the screen) doesn't read strongly as
+// "approaching" or "receding" -- scaling the character up as they close the
+// distance and down as they draw away adds the depth cue that actually
+// sells forward/backward motion, same as any character in a perspective
+// scene appearing larger when nearer.
+const MAX_SCALE = 1.25; // at closeness 0 (arrived)
+const MIN_SCALE = 0.65; // at closeness 1 (farthest)
+
 /**
  * Spring-smoothed screen position for one person, from their (real,
  * coordinate-derived) distance and bearing to a shared reference point.
@@ -27,7 +35,11 @@ export function useScreenPosition({
   bearingDegrees,
   centerXPercent,
   closenessToY,
-}: UseScreenPositionOptions): { x: MotionValue<number>; y: MotionValue<number> } {
+}: UseScreenPositionOptions): {
+  x: MotionValue<number>;
+  y: MotionValue<number>;
+  scale: MotionValue<number>;
+} {
   const closeness = distanceToCloseness(distanceMeters);
 
   const closenessTarget = useMotionValue(closeness);
@@ -49,10 +61,17 @@ export function useScreenPosition({
   }, [bearingDegrees, bearingTarget]);
   // Gentler than the distance spring -- bearing drives a *sway*, and it
   // should read as minimal, compass-like drift, not a disorienting swing.
-  const bearingSpring = useSpring(bearingTarget, { stiffness: 70, damping: 22 });
+  // Low stiffness deliberately -- this spring is what will smooth real GPS
+  // bearing updates later too, not just the mock event in useFindDemo, so
+  // it needs to turn like an actual walking pace regardless of how big a
+  // single bearing jump is, not snap-then-settle. A big target change (like
+  // the scripted "sudden left" event) should still read as a real turn
+  // taking a beat, not an instant redirect.
+  const bearingSpring = useSpring(bearingTarget, { stiffness: 25, damping: 14 });
 
   const y = useTransform(closenessSpring, closenessToY);
   const x = useTransform(bearingSpring, (deg) => centerXPercent + bearingToSway(deg));
+  const scale = useTransform(closenessSpring, (t) => MAX_SCALE - t * (MAX_SCALE - MIN_SCALE));
 
-  return { x, y };
+  return { x, y, scale };
 }

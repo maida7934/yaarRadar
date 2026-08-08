@@ -15,14 +15,33 @@ export interface DistancePreset {
 // than one of them being a stationary anchor.
 export const SCENE_ORIGIN: Coords = { latitude: 12.9716, longitude: 77.5946 };
 
-const ME_BASE_BEARING = 200;
-const FRIEND_BASE_BEARING = 20; // opposite ME_BASE_BEARING -- collinear approach
+const ME_BASE_BEARING = 180;
+const FRIEND_BASE_BEARING = 0; // opposite ME_BASE_BEARING -- collinear approach
 
 // Independent wander per person (different amplitude/frequency/phase) so
 // the walk reads as two people ambling, not one animation mirrored --
-// "normal human movement", not a robotic symmetric one.
-const ME_WANDER = { amplitude: 18, frequency: 0.05, phase: 0 };
-const FRIEND_WANDER = { amplitude: 18, frequency: 0.07, phase: Math.PI / 3 };
+// "normal human movement", not a robotic symmetric one. Kept small and
+// slow -- at the original amplitude/frequency this swung enough, and
+// through enough of a sine cycle over one walk, to cross the sprite
+// direction thresholds (see SpriteCharacter) multiple times, reading as
+// flickering left/right instead of one smooth, gentle drift.
+const ME_WANDER = { amplitude: 8, frequency: 0.025, phase: 0 };
+const FRIEND_WANDER = { amplitude: 8, frequency: 0.03, phase: Math.PI / 3 };
+
+// A single, deliberate "friend suddenly cuts left" moment partway through
+// the walk (~ticks 32-48 of ~75, roughly 6-10s into the ~15s walk) -- the
+// ambient wander above is intentionally too gentle to ever cross the
+// sprite direction thresholds (that's what made the walk feel calm rather
+// than flickery), so without this, "left" is never actually demonstrated.
+// This is a one-time scripted event, not a repeating wobble -- it doesn't
+// reintroduce the flicker the calmer wander was fixing.
+const FRIEND_EVENT_START_TICK = 32;
+const FRIEND_EVENT_END_TICK = 48;
+const FRIEND_EVENT_BEARING = -40; // sway from this is well past the "left" threshold
+
+const ME_EVENT_START_TICK = 10;
+const ME_EVENT_END_TICK = 25;
+const ME_EVENT_BEARING = 90; // sway to the right
 
 const LEG_START_METERS = 900;
 const LEG_END_METERS = 2;
@@ -109,8 +128,17 @@ export function useFindDemo() {
     [stop],
   );
 
-  const meBearing = wanderBearing(ME_BASE_BEARING, sim.tickIndex, ME_WANDER);
-  const friendBearing = wanderBearing(FRIEND_BASE_BEARING, sim.tickIndex, FRIEND_WANDER);
+  const inMeEventWindow =
+    sim.tickIndex >= ME_EVENT_START_TICK && sim.tickIndex < ME_EVENT_END_TICK;
+  const meBearing = inMeEventWindow
+    ? ME_EVENT_BEARING
+    : wanderBearing(ME_BASE_BEARING, sim.tickIndex, ME_WANDER);
+
+  const inFriendEventWindow =
+    sim.tickIndex >= FRIEND_EVENT_START_TICK && sim.tickIndex < FRIEND_EVENT_END_TICK;
+  const friendBearing = inFriendEventWindow
+    ? FRIEND_EVENT_BEARING
+    : wanderBearing(FRIEND_BASE_BEARING, sim.tickIndex, FRIEND_WANDER);
 
   return {
     me: offsetCoords(SCENE_ORIGIN, sim.legMeters, meBearing),

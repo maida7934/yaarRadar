@@ -1,0 +1,86 @@
+export interface SpriteSet {
+  walkSrc: string;
+  idleSrc: string;
+  frameCount: number;
+  cellWidth: number;
+  cellHeight: number;
+}
+
+/**
+ * A lean (left or right) has two phases -- see SpriteCharacter's turn/
+ * settle state machine: `turning` shows briefly right when the lean
+ * direction changes (a real turn, the way a person's stance shifts before
+ * they're actually walking in the new heading), then it settles into
+ * `sustained` for as long as that heading holds.
+ */
+export interface LeanPose {
+  turning: SpriteSet;
+  settled: SpriteSet;
+}
+
+export interface DirectionalSpriteSet {
+  straight: SpriteSet;
+  left: LeanPose;
+  right: LeanPose;
+}
+
+// Native pixel size of each cell in the preprocessed strips -- see
+// scripts/build-sprites.py (CELL_W/CELL_H).
+const CELL_WIDTH = 78;
+const CELL_HEIGHT = 130;
+
+function sprite(name: string): SpriteSet {
+  return {
+    walkSrc: `/sprites/chibi-${name}-walk.png`,
+    idleSrc: `/sprites/chibi-${name}-idle.png`,
+    frameCount: 4,
+    cellWidth: CELL_WIDTH,
+    cellHeight: CELL_HEIGHT,
+  };
+}
+
+// This sheet has genuine art for every state (verified: a flipped `right`
+// frame matches `left` almost exactly, real mirror pairs, not one pose
+// reused) -- so both characters now get the full turn/settle treatment:
+// `turning` is the sharp profile view (an actual lateral turn+walk), and
+// `settled` is the forward-diagonal lean once that heading holds ("you
+// turn, walk sideways a moment, then turn back forward and lean into the
+// new heading" -- the settled pose is a real distinct walk, not a stand-in
+// for the turn). "You" walks away from camera -- back pose, plus the two
+// back-diagonals. "Friend" walks toward camera -- front pose, plus the two
+// front-diagonals. left/right profile art is shared between them since
+// it's the same character model turning sideways either way.
+export const YOU_SPRITES: DirectionalSpriteSet = {
+  straight: sprite("up"),
+  left: { turning: sprite("left"), settled: sprite("upleft") },
+  right: { turning: sprite("right"), settled: sprite("upright") },
+};
+
+export const FRIEND_SPRITES: DirectionalSpriteSet = {
+  straight: sprite("down"),
+  left: { turning: sprite("left"), settled: sprite("downleft") },
+  right: { turning: sprite("right"), settled: sprite("downright") },
+};
+
+// CSS background-image doesn't crossfade -- the old image vanishes the
+// instant a direction switch sets a new url(), even before the new one has
+// loaded, so an image requested for the first time right as it's needed
+// (e.g. swaying "right" for the first time) flashes blank. Preloading every
+// variant up front (see hooks/usePreloadImages.ts) avoids that. Computed
+// once at module load since it never changes.
+export const ALL_SPRITE_SRCS: string[] = [
+  ...new Set(
+    [YOU_SPRITES, FRIEND_SPRITES].flatMap((set) => [
+      set.straight.walkSrc,
+      set.straight.idleSrc,
+      set.left.turning.walkSrc,
+      set.left.turning.idleSrc,
+      set.left.settled.walkSrc,
+      set.left.settled.idleSrc,
+      set.right.turning.walkSrc,
+      set.right.turning.idleSrc,
+      set.right.settled.walkSrc,
+      set.right.settled.idleSrc,
+    ]),
+  ),
+];
