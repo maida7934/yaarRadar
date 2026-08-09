@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMotionValue } from "framer-motion";
+import { useMotionValue, animate, motion } from "framer-motion";
 import { useFindDemo, SCENE_ORIGIN } from "@/hooks/useFindDemo";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useScreenPosition } from "@/hooks/useScreenPosition";
@@ -43,13 +43,13 @@ const FRIEND_STOP_Y_PERCENT = MEET_Y_PERCENT - ARRIVED_GAP_PERCENT / 2;
 // Phase 2 (face each other): both slide to the same Y, offset horizontally
 // so "You" (right-facing) is on the left and "Friend" (left-facing) on the
 // right -- reads as two people turning to face each other.
-const FACE_EACH_OTHER_OFFSET_X = 6;
+const FACE_EACH_OTHER_OFFSET_X = 10;
 const FACE_EACH_OTHER_Y = MEET_Y_PERCENT;
 
 // Phase 3 (face screen side-by-side): same horizontal layout but with more
-// generous spacing so the two are clearly separate.
+// generous spacing so the two are clearly separate, and they slide downwards a bit.
 const SIDE_BY_SIDE_OFFSET_X = 12;
-const SIDE_BY_SIDE_Y = MEET_Y_PERCENT;
+const SIDE_BY_SIDE_Y = MEET_Y_PERCENT + 12;
 
 // --- Arrival phase timing ---
 // Phase 1 → 2: how long after arriving before turning to face each other.
@@ -138,31 +138,50 @@ export function FindScene() {
   const meLookSway = Math.sin((targetAngleDeg * Math.PI) / 180) * 100;
   const friendLookSway = -meLookSway;
 
-  // Static MotionValues for the two post-arrival poses.
-  // SpriteCharacter expects MotionValue<number> for position, so these are
-  // pre-built constants (useMotionValue returns a stable ref).
-
-  // Phase 2: face each other
-  const faceX_me = useMotionValue(CENTER_X_PERCENT - FACE_EACH_OTHER_OFFSET_X);
-  const faceY_me = useMotionValue(FACE_EACH_OTHER_Y);
-  const faceX_friend = useMotionValue(CENTER_X_PERCENT + FACE_EACH_OTHER_OFFSET_X);
-  const faceY_friend = useMotionValue(FACE_EACH_OTHER_Y);
-
-  // Phase 3: face screen side-by-side
-  const sideX_me = useMotionValue(CENTER_X_PERCENT - SIDE_BY_SIDE_OFFSET_X);
-  const sideY_me = useMotionValue(SIDE_BY_SIDE_Y);
-  const sideX_friend = useMotionValue(CENTER_X_PERCENT + SIDE_BY_SIDE_OFFSET_X);
-  const sideY_friend = useMotionValue(SIDE_BY_SIDE_Y);
+  // MotionValues for the post-arrival poses, updated via animate() for smooth sliding
+  const postX_me = useMotionValue(CENTER_X_PERCENT);
+  const postY_me = useMotionValue(MEET_Y_PERCENT);
+  const postX_friend = useMotionValue(CENTER_X_PERCENT);
+  const postY_friend = useMotionValue(MEET_Y_PERCENT);
 
   // Resolve which positions, sprites, and sway to use per phase.
   const isPostArrival = arrivalPhase !== "walking";
   const isFaceScreen = arrivalPhase === "faceScreen";
   const isFaceEachOther = arrivalPhase === "faceEachOther";
 
-  const meX = isFaceScreen ? sideX_me : isFaceEachOther ? faceX_me : mePos.x;
-  const meY = isFaceScreen ? sideY_me : isFaceEachOther ? faceY_me : mePos.y;
-  const friendX = isFaceScreen ? sideX_friend : isFaceEachOther ? faceX_friend : friendPos.x;
-  const friendY = isFaceScreen ? sideY_friend : isFaceEachOther ? faceY_friend : friendPos.y;
+  // Smoothly animate the post-arrival positions when the phase changes
+  useEffect(() => {
+    if (arrivalPhase === "faceEachOther") {
+      // Snap to the expected stopped positions before animating to prevent
+      // a huge slide if the user clicked the 'Arrived' preset while the
+      // distance spring was still far away.
+      postX_me.set(CENTER_X_PERCENT);
+      postY_me.set(ME_STOP_Y_PERCENT);
+      postX_friend.set(CENTER_X_PERCENT);
+      postY_friend.set(FRIEND_STOP_Y_PERCENT);
+
+      animate(postX_me, CENTER_X_PERCENT - FACE_EACH_OTHER_OFFSET_X, { duration: 0.5, ease: "easeOut" });
+      animate(postY_me, FACE_EACH_OTHER_Y, { duration: 0.5, ease: "easeOut" });
+      animate(postX_friend, CENTER_X_PERCENT + FACE_EACH_OTHER_OFFSET_X, { duration: 0.5, ease: "easeOut" });
+      animate(postY_friend, FACE_EACH_OTHER_Y, { duration: 0.5, ease: "easeOut" });
+    } else if (arrivalPhase === "faceScreen") {
+      animate(postX_me, CENTER_X_PERCENT - SIDE_BY_SIDE_OFFSET_X, { duration: 0.8, ease: "easeInOut" });
+      animate(postY_me, SIDE_BY_SIDE_Y, { duration: 0.8, ease: "easeInOut" });
+      animate(postX_friend, CENTER_X_PERCENT + SIDE_BY_SIDE_OFFSET_X, { duration: 0.8, ease: "easeInOut" });
+      animate(postY_friend, SIDE_BY_SIDE_Y, { duration: 0.8, ease: "easeInOut" });
+    } else {
+      // Keep them synced with the live positions while walking so the first transition is seamless
+      postX_me.set(mePos.x.get());
+      postY_me.set(mePos.y.get());
+      postX_friend.set(friendPos.x.get());
+      postY_friend.set(friendPos.y.get());
+    }
+  }, [arrivalPhase, postX_me, postY_me, postX_friend, postY_friend, mePos.x, mePos.y, friendPos.x, friendPos.y]);
+
+  const meX = isPostArrival ? postX_me : mePos.x;
+  const meY = isPostArrival ? postY_me : mePos.y;
+  const friendX = isPostArrival ? postX_friend : friendPos.x;
+  const friendY = isPostArrival ? postY_friend : friendPos.y;
 
   const meSprites = isFaceScreen
     ? TOWARD_CAMERA_SPRITES
@@ -196,6 +215,21 @@ export function FindScene() {
 
         <div className="relative flex-1">
           <ConnectionLine x1={meX} y1={meY} x2={friendX} y2={friendY} />
+
+          {/* Success Text */}
+          {isFaceScreen && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="absolute left-1/2 top-[25%] -translate-x-1/2 text-center z-20 w-full"
+            >
+              <h2 className="text-2xl font-bold text-black dark:text-white drop-shadow-md bg-white/50 dark:bg-black/50 rounded-full px-4 py-1 inline-block backdrop-blur-sm">
+                You found each other!
+              </h2>
+            </motion.div>
+          )}
+
           <SpriteCharacter
             xPercent={friendX}
             yPercent={friendY}
