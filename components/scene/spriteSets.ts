@@ -69,6 +69,23 @@ export const TOWARD_CAMERA_SPRITES: DirectionalSpriteSet = {
 
 export const FRIEND_SPRITES: DirectionalSpriteSet = TOWARD_CAMERA_SPRITES;
 
+// Profile-facing sets used during the face-to-face arrival beat -- "You"
+// turns right and "Friend" turns left so they visually look at each other
+// before both turning to face the screen.  Only the `straight` variant is
+// shown (lookSway is forced to 0 during this phase), but the interface
+// requires left/right lean poses, so they fall back to the same profile art.
+export const FACE_RIGHT_SPRITES: DirectionalSpriteSet = {
+  straight: sprite("right"),
+  left: { turning: sprite("left"), settled: sprite("downleft") },
+  right: { turning: sprite("right"), settled: sprite("downright") },
+};
+
+export const FACE_LEFT_SPRITES: DirectionalSpriteSet = {
+  straight: sprite("left"),
+  left: { turning: sprite("left"), settled: sprite("downleft") },
+  right: { turning: sprite("right"), settled: sprite("downright") },
+};
+
 // CSS background-image doesn't crossfade -- the old image vanishes the
 // instant a direction switch sets a new url(), even before the new one has
 // loaded, so an image requested for the first time right as it's needed

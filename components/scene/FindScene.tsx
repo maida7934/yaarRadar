@@ -10,9 +10,16 @@ import { hasArrived, distanceToCloseness } from "@/utils/distanceToPosition";
 import { bearingToSway } from "@/utils/bearingToSway";
 import { ConnectionLine } from "./ConnectionLine";
 import { ScrollingBackground } from "./ScrollingBackground";
-import { ROAD_TILE } from "./backgroundTiles";
+import { GROUND_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
-import { YOU_SPRITES, FRIEND_SPRITES, TOWARD_CAMERA_SPRITES, ALL_SPRITE_SRCS } from "./spriteSets";
+import {
+  YOU_SPRITES,
+  FRIEND_SPRITES,
+  TOWARD_CAMERA_SPRITES,
+  FACE_RIGHT_SPRITES,
+  FACE_LEFT_SPRITES,
+  ALL_SPRITE_SRCS,
+} from "./spriteSets";
 
 // Both people walk toward this shared screen point from opposite edges --
 // "you" from the bottom, "friend" from the top -- rather than one being a
@@ -31,15 +38,24 @@ const ARRIVED_GAP_PERCENT = 14;
 const ME_STOP_Y_PERCENT = MEET_Y_PERCENT + ARRIVED_GAP_PERCENT / 2;
 const FRIEND_STOP_Y_PERCENT = MEET_Y_PERCENT - ARRIVED_GAP_PERCENT / 2;
 
-// When both sprites turn to face the screen (the "pose together" beat), they
-// slide from their on-path positions to stand side-by-side at screen center.
-const SIDE_BY_SIDE_OFFSET_X = 8; // percent each sprite shifts from center
+// --- Arrival phase positions ---
+
+// Phase 2 (face each other): both slide to the same Y, offset horizontally
+// so "You" (right-facing) is on the left and "Friend" (left-facing) on the
+// right -- reads as two people turning to face each other.
+const FACE_EACH_OTHER_OFFSET_X = 6;
+const FACE_EACH_OTHER_Y = MEET_Y_PERCENT;
+
+// Phase 3 (face screen side-by-side): same horizontal layout but with more
+// generous spacing so the two are clearly separate.
+const SIDE_BY_SIDE_OFFSET_X = 12;
 const SIDE_BY_SIDE_Y = MEET_Y_PERCENT;
 
-// How long the two hold their normal facing (You's back pose, Friend's front
-// pose -- which, with the gap above, already reads as facing each other)
-// after arriving before both turn to face the screen together.
-const FACE_SCREEN_DELAY_MS = 600;
+// --- Arrival phase timing ---
+// Phase 1 → 2: how long after arriving before turning to face each other.
+const FACE_EACH_OTHER_DELAY_MS = 500;
+// Phase 2 → 3: how long they hold the face-each-other beat.
+const FACE_SCREEN_DELAY_MS = 1200;
 
 function meClosenessToY(t: number) {
   return ME_STOP_Y_PERCENT + t * (BOTTOM_Y_PERCENT - ME_STOP_Y_PERCENT);
@@ -56,6 +72,12 @@ function targetXY(distanceMeters: number, bearingDegrees: number, closenessToY: 
   return { x: CENTER_X_PERCENT + bearingToSway(bearingDegrees), y: closenessToY(closeness) };
 }
 
+// Arrival phases, in order:
+//   "walking"        – sprites are on their walking path, normal look-sway
+//   "faceEachOther"  – You faces right, Friend faces left, side-by-side
+//   "faceScreen"     – both face the camera, standing side-by-side
+type ArrivalPhase = "walking" | "faceEachOther" | "faceScreen";
+
 export function FindScene() {
   usePreloadImages(ALL_SPRITE_SRCS);
 
@@ -63,17 +85,26 @@ export function FindScene() {
   const { distance, bearing } = useDistanceBearing(me, friend);
   const arrived = hasArrived(distance);
 
-  // Once arrived, hold the face-to-face beat for FACE_SCREEN_DELAY_MS, then
-  // turn "You" to face the screen alongside Friend (who already does).
-  // Resets the instant arrived goes false again (e.g. "Walk again").
-  const [faceScreen, setFaceScreen] = useState(false);
+  // 3-phase arrival state machine.  Resets to "walking" whenever `arrived`
+  // goes false (e.g. "Walk again").
+  const [arrivalPhase, setArrivalPhase] = useState<ArrivalPhase>("walking");
   useEffect(() => {
     if (!arrived) {
-      setFaceScreen(false);
+      setArrivalPhase("walking");
       return;
     }
-    const timeout = setTimeout(() => setFaceScreen(true), FACE_SCREEN_DELAY_MS);
-    return () => clearTimeout(timeout);
+
+    // Phase 1 → 2: pause, then face each other
+    const t1 = setTimeout(() => setArrivalPhase("faceEachOther"), FACE_EACH_OTHER_DELAY_MS);
+    // Phase 2 → 3: longer hold, then face the screen
+    const t2 = setTimeout(
+      () => setArrivalPhase("faceScreen"),
+      FACE_EACH_OTHER_DELAY_MS + FACE_SCREEN_DELAY_MS,
+    );
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [arrived]);
 
   const meFromOrigin = useDistanceBearing(SCENE_ORIGIN, me);
@@ -107,22 +138,52 @@ export function FindScene() {
   const meLookSway = Math.sin((targetAngleDeg * Math.PI) / 180) * 100;
   const friendLookSway = -meLookSway;
 
-  // Static MotionValues for the side-by-side "face the screen" pose --
-  // SpriteCharacter expects MotionValue props, so we can't pass plain
-  // numbers.  These never change once created (useMotionValue returns a
-  // stable ref), which is fine: they only apply when faceScreen is true
-  // and both sprites have stopped moving.
-  const meScreenX = useMotionValue(CENTER_X_PERCENT - SIDE_BY_SIDE_OFFSET_X);
-  const meScreenY = useMotionValue(SIDE_BY_SIDE_Y);
-  const friendScreenX = useMotionValue(CENTER_X_PERCENT + SIDE_BY_SIDE_OFFSET_X);
-  const friendScreenY = useMotionValue(SIDE_BY_SIDE_Y);
+  // Static MotionValues for the two post-arrival poses.
+  // SpriteCharacter expects MotionValue<number> for position, so these are
+  // pre-built constants (useMotionValue returns a stable ref).
+
+  // Phase 2: face each other
+  const faceX_me = useMotionValue(CENTER_X_PERCENT - FACE_EACH_OTHER_OFFSET_X);
+  const faceY_me = useMotionValue(FACE_EACH_OTHER_Y);
+  const faceX_friend = useMotionValue(CENTER_X_PERCENT + FACE_EACH_OTHER_OFFSET_X);
+  const faceY_friend = useMotionValue(FACE_EACH_OTHER_Y);
+
+  // Phase 3: face screen side-by-side
+  const sideX_me = useMotionValue(CENTER_X_PERCENT - SIDE_BY_SIDE_OFFSET_X);
+  const sideY_me = useMotionValue(SIDE_BY_SIDE_Y);
+  const sideX_friend = useMotionValue(CENTER_X_PERCENT + SIDE_BY_SIDE_OFFSET_X);
+  const sideY_friend = useMotionValue(SIDE_BY_SIDE_Y);
+
+  // Resolve which positions, sprites, and sway to use per phase.
+  const isPostArrival = arrivalPhase !== "walking";
+  const isFaceScreen = arrivalPhase === "faceScreen";
+  const isFaceEachOther = arrivalPhase === "faceEachOther";
+
+  const meX = isFaceScreen ? sideX_me : isFaceEachOther ? faceX_me : mePos.x;
+  const meY = isFaceScreen ? sideY_me : isFaceEachOther ? faceY_me : mePos.y;
+  const friendX = isFaceScreen ? sideX_friend : isFaceEachOther ? faceX_friend : friendPos.x;
+  const friendY = isFaceScreen ? sideY_friend : isFaceEachOther ? faceY_friend : friendPos.y;
+
+  const meSprites = isFaceScreen
+    ? TOWARD_CAMERA_SPRITES
+    : isFaceEachOther
+      ? FACE_RIGHT_SPRITES
+      : YOU_SPRITES;
+  const friendSprites = isFaceScreen
+    ? TOWARD_CAMERA_SPRITES
+    : isFaceEachOther
+      ? FACE_LEFT_SPRITES
+      : FRIEND_SPRITES;
+
+  const meSway = isPostArrival ? 0 : meLookSway;
+  const friendSway = isPostArrival ? 0 : friendLookSway;
 
   return (
     <div className="relative flex min-h-dvh w-full flex-col overflow-hidden">
       {/* Full-screen background -- the character area below is just a
-          positioning context now, no boxed-in square. Swap `ROAD_TILE` for
-          `GROUND_TILE` (both in ./backgroundTiles) to switch textures. */}
-      <ScrollingBackground tile={ROAD_TILE} isMoving={playing} />
+          positioning context now, no boxed-in square. Swap `GROUND_TILE` for
+          `ROAD_TILE` (both in ./backgroundTiles) to switch textures. */}
+      <ScrollingBackground tile={GROUND_TILE} isMoving={playing} />
 
       <div className="relative z-10 flex min-h-dvh w-full flex-col px-4 pb-8 pt-6">
         <header className="text-center">
@@ -132,22 +193,22 @@ export function FindScene() {
         </header>
 
         <div className="relative flex-1">
-          <ConnectionLine x1={faceScreen ? meScreenX : mePos.x} y1={faceScreen ? meScreenY : mePos.y} x2={faceScreen ? friendScreenX : friendPos.x} y2={faceScreen ? friendScreenY : friendPos.y} />
+          <ConnectionLine x1={meX} y1={meY} x2={friendX} y2={friendY} />
           <SpriteCharacter
-            xPercent={faceScreen ? meScreenX : mePos.x}
-            yPercent={faceScreen ? meScreenY : mePos.y}
+            xPercent={meX}
+            yPercent={meY}
             scale={mePos.scale}
-            lookSway={faceScreen ? 0 : meLookSway}
-            sprites={faceScreen ? TOWARD_CAMERA_SPRITES : YOU_SPRITES}
+            lookSway={meSway}
+            sprites={meSprites}
             isMoving={playing}
             label="You"
           />
           <SpriteCharacter
-            xPercent={faceScreen ? friendScreenX : friendPos.x}
-            yPercent={faceScreen ? friendScreenY : friendPos.y}
+            xPercent={friendX}
+            yPercent={friendY}
             scale={friendPos.scale}
-            lookSway={faceScreen ? 0 : friendLookSway}
-            sprites={faceScreen ? TOWARD_CAMERA_SPRITES : FRIEND_SPRITES}
+            lookSway={friendSway}
+            sprites={friendSprites}
             isMoving={playing}
             label="Friend"
           />
