@@ -14,10 +14,10 @@ import { GROUND_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
 import {
   YOU_SPRITES,
-  FRIEND_SPRITES,
   TOWARD_CAMERA_SPRITES,
   FACE_RIGHT_SPRITES,
-  FACE_LEFT_SPRITES,
+  PURPLE_FRIEND_SPRITES,
+  PURPLE_FACE_LEFT_SPRITES,
   ALL_SPRITE_SRCS,
 } from "./spriteSets";
 
@@ -169,11 +169,13 @@ export function FindScene() {
     : isFaceEachOther
       ? FACE_RIGHT_SPRITES
       : YOU_SPRITES;
+  // Friend uses the purple-girl sheet for testing -- "You" is unaffected,
+  // still using the default chibi sets above.
   const friendSprites = isFaceScreen
-    ? TOWARD_CAMERA_SPRITES
+    ? PURPLE_FRIEND_SPRITES
     : isFaceEachOther
-      ? FACE_LEFT_SPRITES
-      : FRIEND_SPRITES;
+      ? PURPLE_FACE_LEFT_SPRITES
+      : PURPLE_FRIEND_SPRITES;
 
   const meSway = isPostArrival ? 0 : meLookSway;
   const friendSway = isPostArrival ? 0 : friendLookSway;

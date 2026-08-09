@@ -86,6 +86,37 @@ export const FACE_LEFT_SPRITES: DirectionalSpriteSet = {
   right: { turning: sprite("right"), settled: sprite("downright") },
 };
 
+// Purple-girl sheet (public/sprites-purple/, see
+// scripts/build-sprites-purple.py) -- generated at the same cell size as
+// the default set above, so it's a drop-in swap. For testing: used only in
+// place of Friend's sprite sets in FindScene, "You" is untouched.
+function purpleSprite(name: string): SpriteSet {
+  return {
+    walkSrc: `/sprites-purple/chibi-${name}-walk.png`,
+    idleSrc: `/sprites-purple/chibi-${name}-idle.png`,
+    frameCount: 4,
+    cellWidth: CELL_WIDTH,
+    cellHeight: CELL_HEIGHT,
+  };
+}
+
+// Purple-girl equivalents of FRIEND_SPRITES/TOWARD_CAMERA_SPRITES above.
+export const PURPLE_TOWARD_CAMERA_SPRITES: DirectionalSpriteSet = {
+  straight: purpleSprite("down"),
+  left: { turning: purpleSprite("left"), settled: purpleSprite("downleft") },
+  right: { turning: purpleSprite("right"), settled: purpleSprite("downright") },
+};
+
+export const PURPLE_FRIEND_SPRITES: DirectionalSpriteSet = PURPLE_TOWARD_CAMERA_SPRITES;
+
+// Purple-girl equivalent of FACE_LEFT_SPRITES above, for Friend's
+// face-each-other beat.
+export const PURPLE_FACE_LEFT_SPRITES: DirectionalSpriteSet = {
+  straight: purpleSprite("left"),
+  left: { turning: purpleSprite("left"), settled: purpleSprite("downleft") },
+  right: { turning: purpleSprite("right"), settled: purpleSprite("downright") },
+};
+
 // CSS background-image doesn't crossfade -- the old image vanishes the
 // instant a direction switch sets a new url(), even before the new one has
 // loaded, so an image requested for the first time right as it's needed
@@ -94,7 +125,7 @@ export const FACE_LEFT_SPRITES: DirectionalSpriteSet = {
 // once at module load since it never changes.
 export const ALL_SPRITE_SRCS: string[] = [
   ...new Set(
-    [YOU_SPRITES, FRIEND_SPRITES].flatMap((set) => [
+    [YOU_SPRITES, FRIEND_SPRITES, PURPLE_FRIEND_SPRITES, PURPLE_FACE_LEFT_SPRITES].flatMap((set) => [
       set.straight.walkSrc,
       set.straight.idleSrc,
       set.left.turning.walkSrc,
