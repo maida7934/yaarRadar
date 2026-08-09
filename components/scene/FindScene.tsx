@@ -195,15 +195,6 @@ export function FindScene() {
         <div className="relative flex-1">
           <ConnectionLine x1={meX} y1={meY} x2={friendX} y2={friendY} />
           <SpriteCharacter
-            xPercent={meX}
-            yPercent={meY}
-            scale={mePos.scale}
-            lookSway={meSway}
-            sprites={meSprites}
-            isMoving={playing}
-            label="You"
-          />
-          <SpriteCharacter
             xPercent={friendX}
             yPercent={friendY}
             scale={friendPos.scale}
@@ -211,6 +202,15 @@ export function FindScene() {
             sprites={friendSprites}
             isMoving={playing}
             label="Friend"
+          />
+          <SpriteCharacter
+            xPercent={meX}
+            yPercent={meY}
+            scale={mePos.scale}
+            lookSway={meSway}
+            sprites={meSprites}
+            isMoving={playing}
+            label="You"
           />
         </div>
 
