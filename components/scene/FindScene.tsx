@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useMotionValue } from "framer-motion";
 import { useFindDemo, SCENE_ORIGIN } from "@/hooks/useFindDemo";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useScreenPosition } from "@/hooks/useScreenPosition";
@@ -10,7 +12,7 @@ import { ConnectionLine } from "./ConnectionLine";
 import { ScrollingBackground } from "./ScrollingBackground";
 import { ROAD_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
-import { YOU_SPRITES, FRIEND_SPRITES, ALL_SPRITE_SRCS } from "./spriteSets";
+import { YOU_SPRITES, FRIEND_SPRITES, TOWARD_CAMERA_SPRITES, ALL_SPRITE_SRCS } from "./spriteSets";
 
 // Both people walk toward this shared screen point from opposite edges --
 // "you" from the bottom, "friend" from the top -- rather than one being a
@@ -20,11 +22,30 @@ const MEET_Y_PERCENT = 50;
 const BOTTOM_Y_PERCENT = 85;
 const TOP_Y_PERCENT = 15;
 
+// The two don't converge all the way to MEET_Y_PERCENT -- closeness 0 (fully
+// arrived) still leaves this much vertical gap between them, split evenly
+// around the meet point, so they end up standing near each other rather than
+// fully overlapping at the same point.  Made large enough that even at the
+// constant sprite scale the two never visually overlap.
+const ARRIVED_GAP_PERCENT = 14;
+const ME_STOP_Y_PERCENT = MEET_Y_PERCENT + ARRIVED_GAP_PERCENT / 2;
+const FRIEND_STOP_Y_PERCENT = MEET_Y_PERCENT - ARRIVED_GAP_PERCENT / 2;
+
+// When both sprites turn to face the screen (the "pose together" beat), they
+// slide from their on-path positions to stand side-by-side at screen center.
+const SIDE_BY_SIDE_OFFSET_X = 8; // percent each sprite shifts from center
+const SIDE_BY_SIDE_Y = MEET_Y_PERCENT;
+
+// How long the two hold their normal facing (You's back pose, Friend's front
+// pose -- which, with the gap above, already reads as facing each other)
+// after arriving before both turn to face the screen together.
+const FACE_SCREEN_DELAY_MS = 600;
+
 function meClosenessToY(t: number) {
-  return MEET_Y_PERCENT + t * (BOTTOM_Y_PERCENT - MEET_Y_PERCENT);
+  return ME_STOP_Y_PERCENT + t * (BOTTOM_Y_PERCENT - ME_STOP_Y_PERCENT);
 }
 function friendClosenessToY(t: number) {
-  return MEET_Y_PERCENT - t * (MEET_Y_PERCENT - TOP_Y_PERCENT);
+  return FRIEND_STOP_Y_PERCENT - t * (FRIEND_STOP_Y_PERCENT - TOP_Y_PERCENT);
 }
 
 /** Where a character would be if position followed the raw distance/bearing
@@ -41,6 +62,19 @@ export function FindScene() {
   const { me, friend, presets, applyPreset, playing, toggleWalking } = useFindDemo();
   const { distance, bearing } = useDistanceBearing(me, friend);
   const arrived = hasArrived(distance);
+
+  // Once arrived, hold the face-to-face beat for FACE_SCREEN_DELAY_MS, then
+  // turn "You" to face the screen alongside Friend (who already does).
+  // Resets the instant arrived goes false again (e.g. "Walk again").
+  const [faceScreen, setFaceScreen] = useState(false);
+  useEffect(() => {
+    if (!arrived) {
+      setFaceScreen(false);
+      return;
+    }
+    const timeout = setTimeout(() => setFaceScreen(true), FACE_SCREEN_DELAY_MS);
+    return () => clearTimeout(timeout);
+  }, [arrived]);
 
   const meFromOrigin = useDistanceBearing(SCENE_ORIGIN, me);
   const friendFromOrigin = useDistanceBearing(SCENE_ORIGIN, friend);
@@ -73,6 +107,16 @@ export function FindScene() {
   const meLookSway = Math.sin((targetAngleDeg * Math.PI) / 180) * 100;
   const friendLookSway = -meLookSway;
 
+  // Static MotionValues for the side-by-side "face the screen" pose --
+  // SpriteCharacter expects MotionValue props, so we can't pass plain
+  // numbers.  These never change once created (useMotionValue returns a
+  // stable ref), which is fine: they only apply when faceScreen is true
+  // and both sprites have stopped moving.
+  const meScreenX = useMotionValue(CENTER_X_PERCENT - SIDE_BY_SIDE_OFFSET_X);
+  const meScreenY = useMotionValue(SIDE_BY_SIDE_Y);
+  const friendScreenX = useMotionValue(CENTER_X_PERCENT + SIDE_BY_SIDE_OFFSET_X);
+  const friendScreenY = useMotionValue(SIDE_BY_SIDE_Y);
+
   return (
     <div className="relative flex min-h-dvh w-full flex-col overflow-hidden">
       {/* Full-screen background -- the character area below is just a
@@ -88,22 +132,22 @@ export function FindScene() {
         </header>
 
         <div className="relative flex-1">
-          <ConnectionLine x1={mePos.x} y1={mePos.y} x2={friendPos.x} y2={friendPos.y} />
+          <ConnectionLine x1={faceScreen ? meScreenX : mePos.x} y1={faceScreen ? meScreenY : mePos.y} x2={faceScreen ? friendScreenX : friendPos.x} y2={faceScreen ? friendScreenY : friendPos.y} />
           <SpriteCharacter
-            xPercent={mePos.x}
-            yPercent={mePos.y}
+            xPercent={faceScreen ? meScreenX : mePos.x}
+            yPercent={faceScreen ? meScreenY : mePos.y}
             scale={mePos.scale}
-            lookSway={meLookSway}
-            sprites={YOU_SPRITES}
+            lookSway={faceScreen ? 0 : meLookSway}
+            sprites={faceScreen ? TOWARD_CAMERA_SPRITES : YOU_SPRITES}
             isMoving={playing}
             label="You"
           />
           <SpriteCharacter
-            xPercent={friendPos.x}
-            yPercent={friendPos.y}
+            xPercent={faceScreen ? friendScreenX : friendPos.x}
+            yPercent={faceScreen ? friendScreenY : friendPos.y}
             scale={friendPos.scale}
-            lookSway={friendLookSway}
-            sprites={FRIEND_SPRITES}
+            lookSway={faceScreen ? 0 : friendLookSway}
+            sprites={faceScreen ? TOWARD_CAMERA_SPRITES : FRIEND_SPRITES}
             isMoving={playing}
             label="Friend"
           />

@@ -56,11 +56,18 @@ export const YOU_SPRITES: DirectionalSpriteSet = {
   right: { turning: sprite("right"), settled: sprite("upright") },
 };
 
-export const FRIEND_SPRITES: DirectionalSpriteSet = {
+// Front/toward-camera pose family. Friend always uses this (they walk toward
+// the viewer). "You" also switches into this once arrived and settled, to
+// turn and face the screen alongside Friend instead of staying back-turned
+// -- see FindScene's arrival phase. Exported under its own name since that
+// second use has nothing to do with "being the friend".
+export const TOWARD_CAMERA_SPRITES: DirectionalSpriteSet = {
   straight: sprite("down"),
   left: { turning: sprite("left"), settled: sprite("downleft") },
   right: { turning: sprite("right"), settled: sprite("downright") },
 };
+
+export const FRIEND_SPRITES: DirectionalSpriteSet = TOWARD_CAMERA_SPRITES;
 
 // CSS background-image doesn't crossfade -- the old image vanishes the
 // instant a direction switch sets a new url(), even before the new one has

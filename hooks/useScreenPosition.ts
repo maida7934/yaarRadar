@@ -14,13 +14,10 @@ interface UseScreenPositionOptions {
   closenessToY: (closeness: number) => number;
 }
 
-// Position alone (just moving up/down the screen) doesn't read strongly as
-// "approaching" or "receding" -- scaling the character up as they close the
-// distance and down as they draw away adds the depth cue that actually
-// sells forward/backward motion, same as any character in a perspective
-// scene appearing larger when nearer.
-const MAX_SCALE = 1.25; // at closeness 0 (arrived)
-const MIN_SCALE = 0.65; // at closeness 1 (farthest)
+// Scale is kept constant so both sprites remain the same visual size
+// throughout the walk -- the original distance-driven scaling caused the
+// front sprite to balloon when they converged.  Vertical position alone
+// already reads as "approaching".
 
 /**
  * Spring-smoothed screen position for one person, from their (real,
@@ -71,7 +68,7 @@ export function useScreenPosition({
 
   const y = useTransform(closenessSpring, closenessToY);
   const x = useTransform(bearingSpring, (deg) => centerXPercent + bearingToSway(deg));
-  const scale = useTransform(closenessSpring, (t) => MAX_SCALE - t * (MAX_SCALE - MIN_SCALE));
+  const scale = useTransform(closenessSpring, () => 1);
 
   return { x, y, scale };
 }
