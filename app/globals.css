@@ -1,26 +1,302 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════════════
+   Gome Pixel  +  BRIGHT pixel-game UI system
+   Inspired by peteroravec.com — light theme, vivid colors
+   ══════════════════════════════════════════════════════ */
+
+/* Chunky, unmistakably-blocky pixel font (self-hosted —
+   replaces Press Start 2P, whose "pixels" read too fine/dotty
+   at UI text sizes). See public/yaarRadar-assets/info.txt for
+   source/license (Gome Pixel, fontspace.com, demo license). */
+@font-face {
+  font-family: "Gome Pixel";
+  src: url("/yaarRadar-assets/GomePixel-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  /* This is a "Demo"-licensed font (see info.txt) -- its digit glyphs
+     (0-9) are a locked placeholder, not real numerals (confirmed: the
+     font's glyph table has no "zero"/"one"/etc. entries at all). Excluding
+     the digit codepoint block here makes the browser skip this font for
+     0-9 and fall through to the next family in --font-pixel (monospace),
+     which does have real digits -- every number in the app (distance,
+     ages, counts) renders correctly instead of as garbled placeholders. */
+  unicode-range: U+20-2F, U+3A-10FFFF;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ── Light, vivid game palette ───────────────────────── */
+  --px-bg:        #e8f5e9;        /* soft mint white        */
+  --px-white:     #ffffff;
+  --px-panel:     #ffffff;        /* white panels           */
+  --px-panel-alt: #f0faf0;        /* very light green-white */
+  --px-border:    #2d2d2d;        /* hard black border      */
+  --px-shadow:    #2d2d2d;        /* pixel drop shadow      */
+
+  /* vivid accent colours */
+  --px-red:       #e53935;
+  --px-green:     #2e7d32;
+  --px-green-lt:  #43a047;
+  --px-blue:      #1565c0;
+  --px-yellow:    #f9a825;
+  --px-orange:    #e65100;
+  --px-pink:      #c2185b;
+  --px-teal:      #00695c;
+
+  /* text */
+  --px-text:      #1a1a1a;
+  --px-muted:     #555;
+  --px-active:    var(--px-blue);
+
+  --font-pixel: 'Gome Pixel', 'Courier New', monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* ── Pixelated hand cursor (all clickable elements) ───── */
+* { box-sizing: border-box; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html, body { height: 100%; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--px-bg);
+  color: var(--px-text);
+  font-family: var(--font-pixel);
+  margin: 0;
+  /* Default cursor — the pixel hand from our asset */
+  cursor: url('/pixel-cursor.png') 11 1, pointer;
+}
+
+/* Every interactive element shows the pixel hand */
+button, a, [role="button"] {
+  cursor: url('/pixel-cursor.png') 11 1, pointer;
+}
+
+/* ── Pixel panel — white card with hard black border ───── */
+.px-panel {
+  background: var(--px-panel);
+  border: 3px solid var(--px-border);
+  /* Hard pixel drop shadow — no blur, just offset */
+  box-shadow: 4px 4px 0 var(--px-shadow);
+}
+
+.px-panel-alt {
+  background: var(--px-panel-alt);
+  border: 3px solid var(--px-border);
+  box-shadow: 4px 4px 0 var(--px-shadow);
+}
+
+/* ── NES-style pixel button ────────────────────────────── */
+.px-btn {
+  font-family: var(--font-pixel);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  border: 3px solid var(--px-border);
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  user-select: none;
+  /* NES-css style inset bevel + hard shadow */
+  box-shadow:
+    4px 4px 0 var(--px-shadow),
+    inset -3px -4px 0 rgba(0,0,0,0.25),
+    inset  2px  2px 0 rgba(255,255,255,0.35);
+  transition: transform 60ms, box-shadow 60ms;
+  image-rendering: pixelated;
+}
+.px-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow:
+    1px 1px 0 var(--px-shadow),
+    inset 2px 3px 0 rgba(0,0,0,0.25);
+}
+
+/* Button colour variants */
+.px-btn-green {
+  background: var(--px-green);
+  color: #ffffff;
+}
+.px-btn-red {
+  background: var(--px-red);
+  color: #ffffff;
+}
+.px-btn-blue {
+  background: var(--px-blue);
+  color: #ffffff;
+}
+.px-btn-yellow {
+  background: var(--px-yellow);
+  color: #000000;
+}
+.px-btn-dark {
+  background: #2d2d2d;
+  color: #ffffff;
+}
+.px-btn-ghost {
+  background: var(--px-white);
+  color: var(--px-text);
+}
+
+/* Compact size variant — for inline actions like a row's "Send" button */
+.px-btn-sm {
+  padding: 6px 10px;
+  font-size: 9px;
+  gap: 4px;
+  box-shadow:
+    2px 2px 0 var(--px-shadow),
+    inset -2px -3px 0 rgba(0,0,0,0.25),
+    inset  1px  1px 0 rgba(255,255,255,0.35);
+}
+.px-btn-sm:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 var(--px-shadow), inset 1px 2px 0 rgba(0,0,0,0.25);
+}
+.px-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+  transform: none !important;
+}
+
+/* ── Pixel text input — same hard border/shadow language as buttons ─ */
+.px-input {
+  font-family: var(--font-pixel);
+  background: var(--px-white);
+  color: var(--px-text);
+  border: 3px solid var(--px-border);
+  box-shadow: 3px 3px 0 var(--px-shadow);
+  outline: none;
+  padding: 10px 12px;
+  font-size: 12px;
+  transition: box-shadow 60ms, transform 60ms;
+}
+.px-input:focus {
+  box-shadow: 1px 1px 0 var(--px-shadow);
+  transform: translate(2px, 2px);
+}
+
+/* ── Segmented pixel tabs — e.g. Friends / Requests toggle ───── */
+.px-segment {
+  display: flex;
+  border: 3px solid var(--px-border);
+  box-shadow: 3px 3px 0 var(--px-shadow);
+}
+.px-segment button {
+  flex: 1;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 10px 6px;
+  border: none;
+  background: var(--px-white);
+  color: var(--px-text);
+  cursor: url('/pixel-cursor.png') 11 1, pointer;
+}
+.px-segment button + button {
+  border-left: 3px solid var(--px-border);
+}
+.px-segment button.active {
+  background: var(--px-text);
+  color: var(--px-white);
+}
+
+/* ── Typewriter blink cursor ─────────────────────────── */
+@keyframes px-blink {
+  0%,49% { opacity: 1; }
+  50%,100% { opacity: 0; }
+}
+.px-cursor::after {
+  content: '_';
+  animation: px-blink 0.8s step-start infinite;
+}
+
+/* ── Circular pixel avatar frame — friend list / contact grid ─ */
+.px-avatar-circle {
+  border-radius: 50%;
+  border: 3px solid var(--px-border);
+  box-shadow: 3px 3px 0 var(--px-shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  image-rendering: pixelated;
+  overflow: hidden;
+}
+
+/* ── Character ground shadow ──────────────────────────── */
+.px-char-shadow {
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.38) 0%, transparent 72%);
+  pointer-events: none;
+}
+
+/* ── Road background photo — same asset family as the Find
+   scene's ground tile, desaturated to grayscale so it reads
+   as texture behind a black/white UI rather than adding its
+   own (quite golden) color. Applied to a decorative, empty,
+   absolutely-positioned layer so the filter never touches the
+   real content stacked on top of it. ────────────────────── */
+.px-bg-road {
+  background-image:
+    linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.58)),
+    url("/yaarRadar-assets/PC%20_%20Computer%20-%20RPG%20Maker%20MV%20-%20Battle%20Backgrounds%20-%20Road%203.png");
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  filter: grayscale(1) contrast(1.05);
+}
+
+/* ── Bottom tab bar ──────────────────────────────────── */
+.px-tab-bar {
+  background: var(--px-white);
+  border-top: 3px solid var(--px-border);
+  box-shadow: 0 -4px 0 var(--px-shadow);
+}
+
+.px-tab {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  color: var(--px-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  height: 100%;
+  transition: color 100ms;
+}
+.px-tab:active { transform: scale(0.95); }
+.px-tab.active { color: var(--px-text); }
+
+/* ── Pixel icons via CSS mask ────────────────────────── */
+.px-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  background: currentColor;
+  image-rendering: pixelated;
+}
+
+.px-icon-home {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='4' y='0' width='2' height='2'/%3E%3Crect x='2' y='2' width='6' height='2'/%3E%3Crect x='0' y='4' width='10' height='1'/%3E%3Crect x='2' y='5' width='6' height='5'/%3E%3Crect x='4' y='6' width='2' height='4'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='4' y='0' width='2' height='2'/%3E%3Crect x='2' y='2' width='6' height='2'/%3E%3Crect x='0' y='4' width='10' height='1'/%3E%3Crect x='2' y='5' width='6' height='5'/%3E%3Crect x='4' y='6' width='2' height='4'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.px-icon-me {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='3' y='0' width='4' height='4'/%3E%3Crect x='2' y='5' width='6' height='5'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='3' y='0' width='4' height='4'/%3E%3Crect x='2' y='5' width='6' height='5'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.px-icon-friends {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 10'%3E%3Crect x='0' y='0' width='4' height='4'/%3E%3Crect x='9' y='0' width='4' height='4'/%3E%3Crect x='0' y='5' width='5' height='5'/%3E%3Crect x='8' y='5' width='5' height='5'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 10'%3E%3Crect x='0' y='0' width='4' height='4'/%3E%3Crect x='9' y='0' width='4' height='4'/%3E%3Crect x='0' y='5' width='5' height='5'/%3E%3Crect x='8' y='5' width='5' height='5'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.px-icon-search {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='2' y='0' width='5' height='2'/%3E%3Crect x='0' y='2' width='2' height='3'/%3E%3Crect x='7' y='2' width='2' height='3'/%3E%3Crect x='2' y='5' width='5' height='2'/%3E%3Crect x='5' y='6' width='2' height='1'/%3E%3Crect x='6' y='7' width='2' height='1'/%3E%3Crect x='7' y='8' width='2' height='2'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='2' y='0' width='5' height='2'/%3E%3Crect x='0' y='2' width='2' height='3'/%3E%3Crect x='7' y='2' width='2' height='3'/%3E%3Crect x='2' y='5' width='5' height='2'/%3E%3Crect x='5' y='6' width='2' height='1'/%3E%3Crect x='6' y='7' width='2' height='1'/%3E%3Crect x='7' y='8' width='2' height='2'/%3E%3C/svg%3E") center/contain no-repeat;
 }

@@ -17,5 +17,5 @@ export const GROUND_TILE: ScrollingTile = {
   src: "/backgrounds/ground-tile.png",
   nativeWidth: 1472,
   nativeHeight: 840,
-  scrollSeconds: 4,
+  scrollSeconds: 5,
 };

@@ -143,14 +143,40 @@ export function SpriteCharacter({
 
   return (
     <motion.div
-      className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
+      className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
       style={{ left, top }}
     >
+      {/* Character sprite */}
       <motion.div
         ref={frameRef}
         style={{ width: displayWidth, height: displayHeight, imageRendering: "pixelated", scale }}
       />
-      <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-black/60 dark:text-zinc-200">
+      {/* Ground shadow — elliptical blur beneath the sprite */}
+      <motion.div
+        className="px-char-shadow"
+        style={{
+          scale,
+          width: displayWidth * 0.6,
+          height: 8,
+          marginTop: -6,
+        }}
+      />
+      {/* Pixel-art name tag */}
+      <span
+        style={{
+          fontFamily: "var(--font-pixel, 'Courier New', monospace)",
+          fontSize: "9px",
+          lineHeight: "1",
+          letterSpacing: "0.04em",
+          color: "#1a1a1a",
+          background: "rgba(255,255,255,0.9)",
+          border: "2px solid #1a1a1a",
+          padding: "2px 5px",
+          marginTop: 5,
+          userSelect: "none",
+          boxShadow: "2px 2px 0 #1a1a1a",
+        }}
+      >
         {label}
       </span>
     </motion.div>

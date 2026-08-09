@@ -8,8 +8,12 @@ import { useScreenPosition } from "@/hooks/useScreenPosition";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { hasArrived, distanceToCloseness } from "@/utils/distanceToPosition";
 import { bearingToSway } from "@/utils/bearingToSway";
+import { PixelModal } from "@/components/ui/PixelModal";
+import { MOCK_FRIENDS } from "@/lib/mockFriends";
+import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { ConnectionLine } from "./ConnectionLine";
 import { ScrollingBackground } from "./ScrollingBackground";
+import { TabBar } from "./TabBar";
 import { GROUND_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
 import {
@@ -81,9 +85,17 @@ type ArrivalPhase = "walking" | "faceEachOther" | "faceScreen";
 export function FindScene() {
   usePreloadImages(ALL_SPRITE_SRCS);
 
-  const { me, friend, presets, applyPreset, playing, toggleWalking } = useFindDemo();
+  const { me, friend, playing, toggleWalking } = useFindDemo();
   const { distance, bearing } = useDistanceBearing(me, friend);
   const arrived = hasArrived(distance);
+
+  // Who "Friend" represents in this walk -- picked via the "Select Friend"
+  // popup below. Only the on-screen name/avatar reflect the choice for now;
+  // the walk itself is still driven by the mock distance/bearing simulation
+  // (no real per-friend location data yet), and the sprite art stays the
+  // existing purple-girl set regardless of who's picked.
+  const [selectedFriend, setSelectedFriend] = useState(MOCK_FRIENDS[0]);
+  const [friendPickerOpen, setFriendPickerOpen] = useState(false);
 
   // 3-phase arrival state machine.  Resets to "walking" whenever `arrived`
   // goes false (e.g. "Walk again").
@@ -201,32 +213,77 @@ export function FindScene() {
 
   return (
     <div className="relative flex min-h-dvh w-full flex-col overflow-hidden">
-      {/* Full-screen background -- the character area below is just a
-          positioning context now, no boxed-in square. Swap `GROUND_TILE` for
-          `ROAD_TILE` (both in ./backgroundTiles) to switch textures. */}
+      {/* Seamless scrolling grass background */}
       <ScrollingBackground tile={GROUND_TILE} isMoving={playing} />
 
-      <div className="relative z-10 flex min-h-dvh w-full flex-col px-4 pb-8 pt-6">
-        <header className="text-center">
-          <h1 className="inline-block rounded-full bg-white/80 px-3 py-1 text-lg font-semibold text-zinc-900 dark:bg-black/60 dark:text-zinc-50">
-            Find
-          </h1>
-        </header>
+      {/* Full-screen overlay */}
+      <div className="relative z-10 flex flex-1 w-full flex-col" style={{ paddingBottom: 68 }}>
 
+        {/* ── TOP HUD ───────────────────────────────────────── */}
+        <div className="flex items-start justify-between gap-2 px-3 pt-3">
+
+          {/* Distance & bearing — white pixel panel */}
+          <div className="px-panel" style={{ padding: "10px 14px" }}>
+            <div style={{
+              fontFamily: "var(--font-pixel, 'Courier New', monospace)",
+              fontSize: 10,
+              lineHeight: 2,
+              color: "var(--px-text)",
+            }}>
+              <span
+                className="px-cursor"
+                style={{ color: "var(--px-orange)", fontSize: 12 }}
+              >
+                {Math.round(distance)}M
+              </span>
+              <br />
+              <span style={{ color: "var(--px-blue)" }}>
+                {Math.round(bearing)}&deg; BRG
+              </span>
+              {arrived && (
+                <><br /><span style={{ color: "var(--px-green)" }}>★ FOUND!</span></>
+              )}
+            </div>
+          </div>
+
+          {/* Play / Pause button — top right */}
+          <button
+            type="button"
+            onClick={toggleWalking}
+            className={`px-btn ${playing ? "px-btn-red" : "px-btn-green"}`}
+            style={{ padding: "10px 14px", fontSize: 10, borderRadius: 2 }}
+          >
+            {playing ? "PAUSE" : arrived ? "AGAIN" : "START"}
+          </button>
+        </div>
+
+        {/* ── CHARACTER SCENE ────────────────────────────────── */}
         <div className="relative flex-1">
           <ConnectionLine x1={meX} y1={meY} x2={friendX} y2={friendY} />
 
-          {/* Success Text */}
+          {/* Arrival banner */}
           {isFaceScreen && (
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="absolute left-1/2 top-[25%] -translate-x-1/2 text-center z-20 w-full"
+              initial={{ opacity: 0, y: -10, scale: 0.92 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              className="absolute left-1/2 top-[22%] -translate-x-1/2 z-20 pointer-events-none"
             >
-              <h2 className="text-2xl font-bold text-black dark:text-white drop-shadow-md bg-white/50 dark:bg-black/50 rounded-full px-4 py-1 inline-block backdrop-blur-sm">
-                You found each other!
-              </h2>
+              <div
+                className="px-panel"
+                style={{
+                  fontFamily: "var(--font-pixel, 'Courier New', monospace)",
+                  fontSize: 9,
+                  color: "var(--px-green)",
+                  letterSpacing: "0.06em",
+                  padding: "10px 18px",
+                  whiteSpace: "nowrap",
+                  textAlign: "center",
+                  borderColor: "var(--px-green)",
+                }}
+              >
+                ★ FOUND EACH OTHER! ★
+              </div>
             </motion.div>
           )}
 
@@ -237,7 +294,7 @@ export function FindScene() {
             lookSway={friendSway}
             sprites={friendSprites}
             isMoving={playing}
-            label="Friend"
+            label={selectedFriend.username}
           />
           <SpriteCharacter
             xPercent={meX}
@@ -250,35 +307,62 @@ export function FindScene() {
           />
         </div>
 
-        {/* Pushed down, plain -- revisit styling later. */}
-        <div className="mt-auto flex flex-col gap-4 rounded-2xl bg-white/85 p-4 backdrop-blur-sm dark:bg-black/70">
-          <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
-            {Math.round(distance)} m away &middot; bearing {Math.round(bearing)}°
-            {arrived ? " · arrived" : ""}
-          </p>
-
+        {/* ── SELECT FRIEND ─────────────────────────────────── */}
+        <div className="flex justify-center px-3 pb-3">
           <button
             type="button"
-            onClick={toggleWalking}
-            className="w-full rounded-full bg-blue-600 py-3 text-base font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
+            onClick={() => setFriendPickerOpen(true)}
+            className="px-btn px-btn-ghost"
+            style={{ padding: "10px 16px", fontSize: 10 }}
           >
-            {playing ? "Pause" : arrived ? "Walk again" : "Start walking"}
+            <span className="px-icon px-icon-friends" aria-hidden></span>
+            SELECT FRIEND: {selectedFriend.username}
           </button>
-
-          <div className="flex flex-wrap justify-center gap-2">
-            {presets.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => applyPreset(preset)}
-                className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
+
+      {/* ── BOTTOM TAB BAR ────────────────────────────────────── */}
+      <TabBar />
+
+      {/* Friend picker sub-window */}
+      <PixelModal
+        open={friendPickerOpen}
+        title="SELECT FRIEND"
+        onClose={() => setFriendPickerOpen(false)}
+      >
+        <div className="grid grid-cols-3 gap-3">
+          {MOCK_FRIENDS.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => {
+                setSelectedFriend(f);
+                setFriendPickerOpen(false);
+              }}
+              className="flex flex-col items-center gap-2 p-2 border-4"
+              style={{
+                borderColor: "var(--px-border)",
+                backgroundColor: f.id === selectedFriend.id ? "var(--px-text)" : "var(--px-white)",
+              }}
+            >
+              <div
+                className="px-avatar-circle w-14 h-14"
+                style={{
+                  backgroundColor: "#e0e0e0",
+                  backgroundImage: `url(${f.pfp})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: avatarBackgroundPosition(f.pfp),
+                }}
+              />
+              <span
+                className="text-[10px] font-bold truncate w-full text-center"
+                style={{ color: f.id === selectedFriend.id ? "var(--px-white)" : "var(--px-text)" }}
+              >
+                {f.username}
+              </span>
+            </button>
+          ))}
+        </div>
+      </PixelModal>
     </div>
   );
 }
