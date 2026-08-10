@@ -5,22 +5,31 @@ import { TabBar } from "@/components/scene/TabBar";
 import { useAuth } from "@/lib/authState";
 import { searchUsers, sendFriendRequest, unfriend, getFriends, ApiError, type UserSearchResult } from "@/lib/api";
 import { rememberUser } from "@/lib/userDirectory";
+import { characterAvatarSrc } from "@/lib/characterAvatars";
+import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 
 const GENERIC_AVATAR = "/pixelated-icons/profile-avatar.png";
 
 function UserRow({
   user,
   isFriend,
+  characterId,
   requested,
   onSendRequest,
   onUnfriend,
 }: {
   user: UserSearchResult;
   isFriend: boolean;
+  /** Only known when isFriend -- GET /users/search?q= itself doesn't return
+   * character_id, so a non-friend result always falls back to the generic
+   * icon. Friends show their real avatar because we already have this from
+   * GET /friends (see friendCharacters below). */
+  characterId: string | null | undefined;
   requested: boolean;
   onSendRequest: () => void;
   onUnfriend: () => void;
 }) {
+  const pfp = isFriend ? characterAvatarSrc(characterId) : GENERIC_AVATAR;
   return (
     <div
       className="flex items-center gap-3 p-3 border-4 border-[var(--px-border)] shadow-[4px_4px_0_var(--px-shadow)]"
@@ -30,11 +39,9 @@ function UserRow({
         className="w-10 h-10 border-2 border-[var(--px-border)] shadow-[2px_2px_0_var(--px-shadow)]"
         style={{
           backgroundColor: "#e0e0e0",
-          backgroundImage: `url(${GENERIC_AVATAR})`,
-          // Search results only give us {id, username} -- no character_id --
-          // so there's no real avatar to show, just the generic icon.
+          backgroundImage: `url(${pfp})`,
           backgroundSize: "cover",
-          backgroundPosition: "center",
+          backgroundPosition: avatarBackgroundPosition(pfp),
           imageRendering: "pixelated",
         }}
       />
@@ -77,14 +84,16 @@ export default function SearchPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [requestErrorId, setRequestErrorId] = useState<string | null>(null);
-  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  // id -> character_id, for anyone you're already friends with -- lets a
+  // search result for a friend show UNFRIEND (instead of SEND REQUEST) and
+  // their real avatar (instead of the generic icon), since GET /friends
+  // gives us character_id but GET /users/search?q= doesn't.
+  const [friendCharacters, setFriendCharacters] = useState<Map<string, string | null>>(new Map());
 
-  // So a search result for someone you're already friends with shows
-  // UNFRIEND instead of SEND REQUEST -- see UserRow.
   useEffect(() => {
     if (!accessToken) return;
     getFriends(accessToken)
-      .then((friends) => setFriendIds(new Set(friends.map((f) => f.id))))
+      .then((friends) => setFriendCharacters(new Map(friends.map((f) => [f.id, f.character_id]))))
       .catch(() => {
         // Leave it empty -- worst case a friend briefly shows SEND REQUEST,
         // which the backend would 409 harmlessly anyway.
@@ -150,8 +159,8 @@ export default function SearchPage() {
     setRequestErrorId(null);
     try {
       await unfriend(accessToken, id);
-      setFriendIds((prev) => {
-        const next = new Set(prev);
+      setFriendCharacters((prev) => {
+        const next = new Map(prev);
         next.delete(id);
         return next;
       });
@@ -200,7 +209,8 @@ export default function SearchPage() {
                     <div key={user.id} className="flex flex-col gap-1">
                       <UserRow
                         user={user}
-                        isFriend={friendIds.has(user.id)}
+                        isFriend={friendCharacters.has(user.id)}
+                        characterId={friendCharacters.get(user.id)}
                         requested={requestedIds.has(user.id)}
                         onSendRequest={() => sendRequest(user.id)}
                         onUnfriend={() => removeFriend(user.id)}
