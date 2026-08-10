@@ -79,6 +79,7 @@ export default function FriendsPage() {
   const [requestsError, setRequestsError] = useState<string | null>(null);
 
   const [viewingRequest, setViewingRequest] = useState<DisplayRequest | null>(null);
+  const [viewingFriend, setViewingFriend] = useState<Friend | null>(null);
   const [respondingId, setRespondingId] = useState<string | null>(null);
 
   const loadFriends = useCallback(() => {
@@ -171,7 +172,12 @@ export default function FriendsPage() {
                 {friends.map((friend) => {
                   const pfp = characterAvatarSrc(friend.character_id);
                   return (
-                    <div key={friend.id} className="flex flex-col items-center gap-2 cursor-[url('/pixelated-icons/cursor.png')_5_1,_pointer]">
+                    <button
+                      key={friend.id}
+                      type="button"
+                      onClick={() => setViewingFriend(friend)}
+                      className="flex flex-col items-center gap-2 cursor-[url('/pixelated-icons/cursor.png')_5_1,_pointer]"
+                    >
                       <div
                         className="px-avatar-circle w-16 h-16"
                         style={{
@@ -190,7 +196,7 @@ export default function FriendsPage() {
                       >
                         {friend.username}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -280,6 +286,31 @@ export default function FriendsPage() {
               </button>
             </div>
           </>
+        )}
+      </PixelModal>
+
+      {/* Friend profile sub-window, opened from the Friends grid */}
+      <PixelModal
+        open={viewingFriend !== null}
+        title="FRIEND PROFILE"
+        onClose={() => setViewingFriend(null)}
+      >
+        {viewingFriend && (
+          <div className="flex items-center gap-4">
+            <div
+              className="w-20 h-20 border-4 border-[var(--px-border)] shadow-[4px_4px_0_var(--px-shadow)] shrink-0"
+              style={{
+                backgroundColor: "#e0e0e0",
+                backgroundImage: `url(${characterAvatarSrc(viewingFriend.character_id)})`,
+                backgroundSize: "cover",
+                backgroundPosition: avatarBackgroundPosition(characterAvatarSrc(viewingFriend.character_id)),
+                imageRendering: "pixelated",
+              }}
+            />
+            <h3 className="text-base font-bold truncate" style={{ color: "var(--px-text)" }}>
+              {viewingFriend.username}
+            </h3>
+          </div>
         )}
       </PixelModal>
     </div>
