@@ -15,6 +15,12 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, username: string) => Promise<void>;
   logOut: () => Promise<void>;
+  /** Saves arbitrary profile fields (name, age, bio, ...) onto the account's
+   * own Supabase Auth user record (auth.users.user_metadata) -- the backend
+   * has no field for these (only username/character_id), and username can't
+   * be changed at all, so this is the one place real per-account storage is
+   * available without a backend change. See Me page's Edit Profile. */
+  updateProfile: (data: Record<string, unknown>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -72,8 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
   };
 
+  const updateProfile = async (data: Record<string, unknown>) => {
+    const { data: result, error } = await supabase.auth.updateUser({ data });
+    if (error) throw error;
+    setUser(result.user);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, accessToken, loading, login, signup, logOut }}>
+    <AuthContext.Provider value={{ user, accessToken, loading, login, signup, logOut, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

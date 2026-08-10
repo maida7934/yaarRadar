@@ -21,15 +21,55 @@ const BACKGROUND_OPTIONS = [
 
 type ActiveModal = "profile" | "layout" | null;
 
+interface ProfileMetadata {
+  name?: string;
+  age?: string;
+  bio?: string;
+}
+
 export default function MePage() {
-  const { logOut } = useAuth();
+  const { user, logOut, updateProfile } = useAuth();
   const { characterId, setCharacterId } = useCharacter();
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [layoutTab, setLayoutTab] = useState<"character" | "background">("character");
 
-  const [name, setName] = useState("PlayerOne");
-  const [age, setAge] = useState("24");
-  const [bio, setBio] = useState("Just here to find my friends.");
+  // Source of truth is the account's own Supabase user record
+  // (user_metadata) -- see lib/authState.tsx's updateProfile for why (the
+  // backend has no field for these). Falls back to placeholder copy for a
+  // freshly-signed-up account that's never set any of this yet.
+  const metadata = (user?.user_metadata ?? {}) as ProfileMetadata;
+  const name = metadata.name ?? "PlayerOne";
+  const age = metadata.age ?? "24";
+  const bio = metadata.bio ?? "Just here to find my friends.";
+
+  // Draft copies for the modal's inputs -- only committed to the account on
+  // SAVE, reset from the real values each time the modal opens.
+  const [draftName, setDraftName] = useState(name);
+  const [draftAge, setDraftAge] = useState(age);
+  const [draftBio, setDraftBio] = useState(bio);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const openProfileModal = () => {
+    setDraftName(name);
+    setDraftAge(age);
+    setDraftBio(bio);
+    setProfileError(null);
+    setActiveModal("profile");
+  };
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await updateProfile({ name: draftName, age: draftAge, bio: draftBio });
+      setActiveModal(null);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : "Could not save. Try again.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const [backgroundId, setBackgroundId] = useState("road");
 
@@ -80,11 +120,11 @@ export default function MePage() {
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={() => setActiveModal("profile")}
+                onClick={openProfileModal}
                 className="px-btn px-btn-ghost w-full justify-start p-4 text-left"
                 style={{ fontSize: 12 }}
               >
-                <span className="px-icon px-icon-me mr-2" aria-hidden></span> CHANGE PROFILE
+                <span className="px-icon px-icon-me mr-2" aria-hidden></span> EDIT PROFILE
               </button>
 
               <button
@@ -110,26 +150,30 @@ export default function MePage() {
         <TabBar />
       </div>
 
-      {/* Change Profile sub-window */}
-      <PixelModal open={activeModal === "profile"} title="CHANGE PROFILE" onClose={() => setActiveModal(null)}>
+      {/* Edit Profile sub-window */}
+      <PixelModal open={activeModal === "profile"} title="EDIT PROFILE" onClose={() => setActiveModal(null)}>
         <label className="flex flex-col gap-1">
           <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>NAME</span>
-          <input className="px-input" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="px-input" value={draftName} onChange={(e) => setDraftName(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>AGE</span>
-          <input className="px-input" type="number" value={age} onChange={(e) => setAge(e.target.value)} />
+          <input className="px-input" type="number" value={draftAge} onChange={(e) => setDraftAge(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>BIO</span>
-          <input className="px-input" value={bio} onChange={(e) => setBio(e.target.value)} />
+          <input className="px-input" value={draftBio} onChange={(e) => setDraftBio(e.target.value)} />
         </label>
+        {profileError && (
+          <p className="text-[10px] font-bold" style={{ color: "var(--px-red)" }}>{profileError}</p>
+        )}
         <button
           className="px-btn px-btn-dark w-full p-3 mt-2"
           style={{ fontSize: 11 }}
-          onClick={() => setActiveModal(null)}
+          onClick={saveProfile}
+          disabled={savingProfile}
         >
-          SAVE
+          {savingProfile ? "..." : "SAVE"}
         </button>
       </PixelModal>
 
