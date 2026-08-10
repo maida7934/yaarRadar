@@ -4,6 +4,7 @@ import { useState } from "react";
 import { TabBar } from "@/components/scene/TabBar";
 import { PixelModal } from "@/components/ui/PixelModal";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
+import { useAuth } from "@/lib/authState";
 
 const CHARACTER_OPTIONS = [
   { id: "default", label: "Classic", pfp: "/sprites/chibi-down-idle.png" },
@@ -20,6 +21,7 @@ const BACKGROUND_OPTIONS = [
 type ActiveModal = "profile" | "layout" | null;
 
 export default function MePage() {
+  const { logOut } = useAuth();
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [layoutTab, setLayoutTab] = useState<"character" | "background">("character");
 
@@ -96,7 +98,7 @@ export default function MePage() {
 
           {/* Danger Zone */}
           <div className="flex flex-col gap-3 mt-4">
-            <button className="px-btn px-btn-dark w-full p-4" style={{ fontSize: 12 }}>
+            <button className="px-btn px-btn-dark w-full p-4" style={{ fontSize: 12 }} onClick={logOut}>
               LOG OUT
             </button>
           </div>
