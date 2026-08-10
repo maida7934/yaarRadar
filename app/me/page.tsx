@@ -29,7 +29,7 @@ interface ProfileMetadata {
 
 export default function MePage() {
   const { user, logOut, updateProfile } = useAuth();
-  const { characterId, setCharacterId } = useCharacter();
+  const { characterId, setCharacterId, loading: characterLoading } = useCharacter();
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [layoutTab, setLayoutTab] = useState<"character" | "background">("character");
 
@@ -74,6 +74,11 @@ export default function MePage() {
   const [backgroundId, setBackgroundId] = useState("road");
 
   const activeCharacter = CHARACTER_OPTIONS.find((c) => c.id === characterId) ?? CHARACTER_OPTIONS[0];
+  // Last resort only -- characterLoading is true just for a first-ever
+  // login on this browser (nothing cached yet, see lib/characterState.tsx),
+  // where we genuinely don't know the real pick. Showing this generic icon
+  // instead of the default sprite avoids implying "default" is the answer.
+  const avatarPfp = characterLoading ? "/pixelated-icons/profile-avatar.png" : activeCharacter.pfp;
 
   return (
     <div className="flex flex-1 justify-center" style={{ backgroundColor: "var(--px-border)" }}>
@@ -97,19 +102,19 @@ export default function MePage() {
               className="w-24 h-24 border-4 border-[var(--px-border)] shadow-[4px_4px_0_var(--px-shadow)] relative"
               style={{
                 backgroundColor: "#e0e0e0",
-                backgroundImage: `url(${activeCharacter.pfp})`,
+                backgroundImage: `url(${avatarPfp})`,
                 // Idle sprites are a single full-body portrait (78x130), not a
                 // frame strip -- "cover" + anchoring near the top crops in on the
                 // head/face instead of squishing the whole body into the square.
                 backgroundSize: "cover",
-                backgroundPosition: avatarBackgroundPosition(activeCharacter.pfp),
+                backgroundPosition: avatarBackgroundPosition(avatarPfp),
                 imageRendering: "pixelated",
               }}
             />
 
             <div>
               <h2 className="text-lg font-bold" style={{ color: "var(--px-text)" }}>{name}</h2>
-              <p className="text-xs mt-1" style={{ color: "var(--px-muted)" }}>Age {age} &middot; Explorer</p>
+              <p className="text-xs mt-1" style={{ color: "var(--px-muted)" }}>{bio}</p>
             </div>
 
           </div>
