@@ -1,28 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TabBar } from "@/components/scene/TabBar";
-import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
+import { useAuth } from "@/lib/authState";
+import { searchUsers, sendFriendRequest, unfriend, getFriends, ApiError, type UserSearchResult } from "@/lib/api";
+import { rememberUser } from "@/lib/userDirectory";
 
-// Mock data for search
-const ALL_USERS = [
-  { id: "1", username: "PixelPete", pfp: "/sprites/chibi-down-idle.png" },
-  { id: "2", username: "RetroRanger", pfp: "/sprites/chibi-left-idle.png" },
-  { id: "3", username: "ChibiChan", pfp: "/sprites-purple/chibi-down-idle.png" },
-  { id: "4", username: "CodeNinja", pfp: "/sprites/chibi-right-idle.png" },
-  { id: "5", username: "StarGazer", pfp: "/sprites-purple/chibi-left-idle.png" },
-];
-
-type SearchUser = { id: string; username: string; pfp: string };
+const GENERIC_AVATAR = "/pixelated-icons/profile-avatar.png";
 
 function UserRow({
   user,
+  isFriend,
   requested,
   onSendRequest,
+  onUnfriend,
 }: {
-  user: SearchUser;
+  user: UserSearchResult;
+  isFriend: boolean;
   requested: boolean;
   onSendRequest: () => void;
+  onUnfriend: () => void;
 }) {
   return (
     <div
@@ -33,48 +30,135 @@ function UserRow({
         className="w-10 h-10 border-2 border-[var(--px-border)] shadow-[2px_2px_0_var(--px-shadow)]"
         style={{
           backgroundColor: "#e0e0e0",
-          backgroundImage: `url(${user.pfp})`,
-          // Idle sprites are a single full-body portrait (78x130), not a
-          // frame strip -- "cover" + anchoring near the top crops in on the
-          // head/face instead of squishing the whole body into the square.
+          backgroundImage: `url(${GENERIC_AVATAR})`,
+          // Search results only give us {id, username} -- no character_id --
+          // so there's no real avatar to show, just the generic icon.
           backgroundSize: "cover",
-          backgroundPosition: avatarBackgroundPosition(user.pfp),
+          backgroundPosition: "center",
           imageRendering: "pixelated",
         }}
       />
       <span className="text-sm font-bold flex-1 truncate" style={{ color: "var(--px-text)" }}>
         {user.username}
       </span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSendRequest();
-        }}
-        disabled={requested}
-        className={`px-btn px-btn-sm ${requested ? "px-btn-ghost" : "px-btn-dark"}`}
-      >
-        {requested ? "INVITED" : "SEND INVITE"}
-      </button>
+      {isFriend ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnfriend();
+          }}
+          className="px-btn px-btn-sm px-btn-ghost"
+        >
+          UNFRIEND
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSendRequest();
+          }}
+          disabled={requested}
+          className={`px-btn px-btn-sm ${requested ? "px-btn-ghost" : "px-btn-dark"}`}
+        >
+          {requested ? "REQUESTED" : "SEND REQUEST"}
+        </button>
+      )}
     </div>
   );
 }
 
 export default function SearchPage() {
+  const { accessToken } = useAuth();
   const [query, setQuery] = useState("");
-  const [recent, setRecent] = useState([
-    { id: "6", username: "MagicMike", pfp: "/sprites/chibi-up-idle.png" },
-    { id: "7", username: "PixelPioneer", pfp: "/sprites-purple/chibi-right-idle.png" },
-  ]);
+  const [results, setResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
+  const [requestErrorId, setRequestErrorId] = useState<string | null>(null);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
 
-  const sendRequest = (id: string) => {
-    setRequestedIds((prev) => new Set(prev).add(id));
+  // So a search result for someone you're already friends with shows
+  // UNFRIEND instead of SEND REQUEST -- see UserRow.
+  useEffect(() => {
+    if (!accessToken) return;
+    getFriends(accessToken)
+      .then((friends) => setFriendIds(new Set(friends.map((f) => f.id))))
+      .catch(() => {
+        // Leave it empty -- worst case a friend briefly shows SEND REQUEST,
+        // which the backend would 409 harmlessly anyway.
+      });
+  }, [accessToken]);
+
+  // Debounced live search -- GET /users/search?q= on every keystroke would
+  // be excessive.
+  useEffect(() => {
+    if (!query.trim() || !accessToken) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    setSearchError(null);
+
+    const timeout = setTimeout(() => {
+      searchUsers(accessToken, query.trim())
+        .then((found) => {
+          if (cancelled) return;
+          setResults(found);
+          // Cache id->username for anyone we can now see -- lets a later
+          // incoming friend request from them resolve to a real name
+          // instead of "Unknown user" (see lib/userDirectory.ts for why
+          // that's needed at all).
+          found.forEach((u) => rememberUser(u.id, u.username));
+        })
+        .catch((err) => {
+          if (!cancelled) setSearchError(err instanceof ApiError ? err.message : "Search failed.");
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [query, accessToken]);
+
+  const sendRequest = async (id: string) => {
+    if (!accessToken) return;
+    setRequestErrorId(null);
+    try {
+      await sendFriendRequest(accessToken, id);
+      setRequestedIds((prev) => new Set(prev).add(id));
+    } catch (err) {
+      // 409 means a request between you two already exists either
+      // direction -- treat that as "already requested" too rather than an
+      // error, since functionally it is.
+      if (err instanceof ApiError && err.status === 409) {
+        setRequestedIds((prev) => new Set(prev).add(id));
+        return;
+      }
+      setRequestErrorId(id);
+    }
   };
 
-  const filteredUsers = query
-    ? ALL_USERS.filter((u) => u.username.toLowerCase().includes(query.toLowerCase()))
-    : [];
+  const removeFriend = async (id: string) => {
+    if (!accessToken) return;
+    setRequestErrorId(null);
+    try {
+      await unfriend(accessToken, id);
+      setFriendIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch {
+      setRequestErrorId(id);
+    }
+  };
 
   return (
     <div className="flex flex-1 justify-center" style={{ backgroundColor: "var(--px-border)" }}>
@@ -93,7 +177,7 @@ export default function SearchPage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find friends..."
+              placeholder="Find friends by username..."
               className="w-full p-3 pl-10 border-4 border-[var(--px-border)] text-sm shadow-[4px_4px_0_var(--px-shadow)] outline-none focus:shadow-[2px_2px_0_var(--px-shadow)] focus:translate-x-[2px] focus:translate-y-[2px] transition-all placeholder-gray-600"
               style={{ fontFamily: "var(--font-pixel)", backgroundColor: "var(--px-white)", color: "var(--px-text)" }}
             />
@@ -103,20 +187,30 @@ export default function SearchPage() {
 
         {/* Content - road-photo background shows through behind the cards */}
         <div className="relative z-10 flex-1 overflow-y-auto p-4">
-
           {query ? (
-            // Search Results
             <div>
               <h2 className="text-sm mb-3" style={{ color: "var(--px-white)", textShadow: "2px 2px 0 var(--px-shadow)" }}>RESULTS</h2>
-              {filteredUsers.length > 0 ? (
+              {searching ? (
+                <div className="text-center p-8 text-sm" style={{ color: "var(--px-white)" }}>Searching...</div>
+              ) : searchError ? (
+                <div className="text-center p-8 text-sm font-bold" style={{ color: "var(--px-red)" }}>{searchError}</div>
+              ) : results.length > 0 ? (
                 <div className="flex flex-col gap-3">
-                  {filteredUsers.map((user) => (
-                    <UserRow
-                      key={user.id}
-                      user={user}
-                      requested={requestedIds.has(user.id)}
-                      onSendRequest={() => sendRequest(user.id)}
-                    />
+                  {results.map((user) => (
+                    <div key={user.id} className="flex flex-col gap-1">
+                      <UserRow
+                        user={user}
+                        isFriend={friendIds.has(user.id)}
+                        requested={requestedIds.has(user.id)}
+                        onSendRequest={() => sendRequest(user.id)}
+                        onUnfriend={() => removeFriend(user.id)}
+                      />
+                      {requestErrorId === user.id && (
+                        <p className="text-[10px] font-bold px-1" style={{ color: "var(--px-red)" }}>
+                          Could not complete that action. Try again.
+                        </p>
+                      )}
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -124,38 +218,10 @@ export default function SearchPage() {
               )}
             </div>
           ) : (
-            // Recent Searches
-            <div>
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-sm" style={{ color: "var(--px-white)", textShadow: "2px 2px 0 var(--px-shadow)" }}>RECENT</h2>
-                {recent.length > 0 && (
-                  <button
-                    onClick={() => setRecent([])}
-                    className="text-[10px] underline hover:opacity-60"
-                    style={{ color: "var(--px-white)" }}
-                  >
-                    CLEAR ALL
-                  </button>
-                )}
-              </div>
-
-              {recent.length > 0 ? (
-                <div className="flex flex-col gap-3">
-                  {recent.map((user) => (
-                    <UserRow
-                      key={user.id}
-                      user={user}
-                      requested={requestedIds.has(user.id)}
-                      onSendRequest={() => sendRequest(user.id)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center p-8 text-sm" style={{ color: "var(--px-white)" }}>No recent searches.</div>
-              )}
+            <div className="text-center p-8 text-sm" style={{ color: "var(--px-white)" }}>
+              Search for a friend by their username.
             </div>
           )}
-
         </div>
 
         {/* Navigation */}

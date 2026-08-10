@@ -6,13 +6,7 @@ import { PixelModal } from "@/components/ui/PixelModal";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { useAuth } from "@/lib/authState";
 import { useCharacter } from "@/lib/characterState";
-
-const CHARACTER_OPTIONS = [
-  { id: "default", label: "Classic", pfp: "/sprites/chibi-down-idle.png" },
-  { id: "purple", label: "Purple", pfp: "/sprites-purple/chibi-down-idle.png" },
-  { id: "hat", label: "Hat Girl", pfp: "/sprites-hat/chibi-down-idle.png" },
-  { id: "officer", label: "Officer", pfp: "/sprites-officer/chibi-down-idle.png" },
-];
+import { CHARACTER_OPTIONS } from "@/lib/characterAvatars";
 
 const BACKGROUND_OPTIONS = [
   { id: "road", label: "Stone Road" },
