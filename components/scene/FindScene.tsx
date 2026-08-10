@@ -9,21 +9,17 @@ import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { hasArrived, distanceToCloseness } from "@/utils/distanceToPosition";
 import { bearingToSway } from "@/utils/bearingToSway";
 import { PixelModal } from "@/components/ui/PixelModal";
-import { MOCK_FRIENDS } from "@/lib/mockFriends";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
+import { characterAvatarSrc } from "@/lib/characterAvatars";
 import { useCharacter } from "@/lib/characterState";
+import { useAuth } from "@/lib/authState";
+import { getFriends, type Friend } from "@/lib/api";
 import { ConnectionLine } from "./ConnectionLine";
 import { ScrollingBackground } from "./ScrollingBackground";
 import { TabBar } from "./TabBar";
 import { GROUND_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
-import {
-  CHARACTER_SPRITE_BUNDLES,
-  DEFAULT_CHARACTER_ID,
-  PURPLE_FRIEND_SPRITES,
-  PURPLE_FACE_LEFT_SPRITES,
-  ALL_SPRITE_SRCS,
-} from "./spriteSets";
+import { CHARACTER_SPRITE_BUNDLES, DEFAULT_CHARACTER_ID, ALL_SPRITE_SRCS } from "./spriteSets";
 
 // Both people walk toward this shared screen point from opposite edges --
 // "you" from the bottom, "friend" from the top -- rather than one being a
@@ -96,12 +92,33 @@ export function FindScene() {
   const myCharacterSprites = CHARACTER_SPRITE_BUNDLES[characterId] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Who "Friend" represents in this walk -- picked via the "Select Friend"
-  // popup below. Only the on-screen name/avatar reflect the choice for now;
-  // the walk itself is still driven by the mock distance/bearing simulation
-  // (no real per-friend location data yet), and the sprite art stays the
-  // existing purple-girl set regardless of who's picked.
-  const [selectedFriend, setSelectedFriend] = useState(MOCK_FRIENDS[0]);
+  // popup below, from your real GET /friends list. Only the on-screen
+  // name/avatar/sprite reflect the choice -- the walk itself is still
+  // driven by the mock distance/bearing simulation (no real per-friend
+  // location data yet).
+  const { accessToken } = useAuth();
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [friendsLoading, setFriendsLoading] = useState(true);
+  const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [friendPickerOpen, setFriendPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    getFriends(accessToken)
+      .then((list) => {
+        setFriends(list);
+        setSelectedFriend((current) => current ?? list[0] ?? null);
+      })
+      .catch(() => {
+        // Leave friends empty -- the picker just shows "no friends yet".
+      })
+      .finally(() => setFriendsLoading(false));
+  }, [accessToken]);
+
+  const friendCharacterSprites =
+    CHARACTER_SPRITE_BUNDLES[selectedFriend?.character_id ?? DEFAULT_CHARACTER_ID] ??
+    CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
+  const friendLabel = selectedFriend?.username ?? "Friend";
 
   // 3-phase arrival state machine.  Resets to "walking" whenever `arrived`
   // goes false (e.g. "Walk again").
@@ -206,13 +223,14 @@ export function FindScene() {
     : isFaceEachOther
       ? myCharacterSprites.faceRight
       : myCharacterSprites.you;
-  // Friend uses the purple-girl sheet for testing -- unrelated to the
-  // character picker above, which only ever affects "You".
+  // Whichever character the selected friend picked (see friendCharacterSprites
+  // above) -- falls back to the default set if they haven't picked one, or
+  // if no friend is selected at all.
   const friendSprites = isFaceScreen
-    ? PURPLE_FRIEND_SPRITES
+    ? friendCharacterSprites.towardCamera
     : isFaceEachOther
-      ? PURPLE_FACE_LEFT_SPRITES
-      : PURPLE_FRIEND_SPRITES;
+      ? friendCharacterSprites.faceLeft
+      : friendCharacterSprites.towardCamera;
 
   const meSway = isPostArrival ? 0 : meLookSway;
   const friendSway = isPostArrival ? 0 : friendLookSway;
@@ -300,7 +318,7 @@ export function FindScene() {
             lookSway={friendSway}
             sprites={friendSprites}
             isMoving={playing}
-            label={selectedFriend.username}
+            label={friendLabel}
           />
           <SpriteCharacter
             xPercent={meX}
@@ -322,7 +340,7 @@ export function FindScene() {
             style={{ padding: "10px 16px", fontSize: 10 }}
           >
             <span className="px-icon px-icon-friends" aria-hidden></span>
-            SELECT FRIEND: {selectedFriend.username}
+            {friendsLoading ? "LOADING..." : selectedFriend ? `SELECT FRIEND: ${selectedFriend.username}` : "NO FRIENDS YET"}
           </button>
         </div>
       </div>
@@ -336,38 +354,47 @@ export function FindScene() {
         title="SELECT FRIEND"
         onClose={() => setFriendPickerOpen(false)}
       >
-        <div className="grid grid-cols-3 gap-3">
-          {MOCK_FRIENDS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => {
-                setSelectedFriend(f);
-                setFriendPickerOpen(false);
-              }}
-              className="flex flex-col items-center gap-2 p-2 border-4"
-              style={{
-                borderColor: "var(--px-border)",
-                backgroundColor: f.id === selectedFriend.id ? "var(--px-text)" : "var(--px-white)",
-              }}
-            >
-              <div
-                className="px-avatar-circle w-14 h-14"
-                style={{
-                  backgroundColor: "#e0e0e0",
-                  backgroundImage: `url(${f.pfp})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: avatarBackgroundPosition(f.pfp),
-                }}
-              />
-              <span
-                className="text-[10px] font-bold truncate w-full text-center"
-                style={{ color: f.id === selectedFriend.id ? "var(--px-white)" : "var(--px-text)" }}
-              >
-                {f.username}
-              </span>
-            </button>
-          ))}
-        </div>
+        {friends.length > 0 ? (
+          <div className="grid grid-cols-3 gap-3">
+            {friends.map((f) => {
+              const pfp = characterAvatarSrc(f.character_id);
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setSelectedFriend(f);
+                    setFriendPickerOpen(false);
+                  }}
+                  className="flex flex-col items-center gap-2 p-2 border-4"
+                  style={{
+                    borderColor: "var(--px-border)",
+                    backgroundColor: f.id === selectedFriend?.id ? "var(--px-text)" : "var(--px-white)",
+                  }}
+                >
+                  <div
+                    className="px-avatar-circle w-14 h-14"
+                    style={{
+                      backgroundColor: "#e0e0e0",
+                      backgroundImage: `url(${pfp})`,
+                      backgroundSize: "cover",
+                      backgroundPosition: avatarBackgroundPosition(pfp),
+                    }}
+                  />
+                  <span
+                    className="text-[10px] font-bold truncate w-full text-center"
+                    style={{ color: f.id === selectedFriend?.id ? "var(--px-white)" : "var(--px-text)" }}
+                  >
+                    {f.username}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-center text-sm" style={{ color: "var(--px-muted)" }}>
+            No friends yet -- find some in Search!
+          </p>
+        )}
       </PixelModal>
     </div>
   );
