@@ -25,18 +25,26 @@ export interface DirectionalSpriteSet {
 }
 
 // Native pixel size of each cell in the preprocessed strips -- see
-// scripts/build-sprites.py (CELL_W/CELL_H).
+// scripts/build-sprites.py (CELL_W/CELL_H). Every sprite-* folder (default,
+// purple, hat, officer) was generated at this same size, so any of them is
+// a drop-in swap for any other.
 const CELL_WIDTH = 78;
 const CELL_HEIGHT = 130;
 
-function sprite(name: string): SpriteSet {
+// Generic helper -- every sprite-* folder shares the same
+// chibi-{direction}-{walk,idle}.png naming (see scripts/build-sprites*.py).
+function spriteFrom(folder: string, name: string): SpriteSet {
   return {
-    walkSrc: `/sprites/chibi-${name}-walk.png`,
-    idleSrc: `/sprites/chibi-${name}-idle.png`,
+    walkSrc: `${folder}/chibi-${name}-walk.png`,
+    idleSrc: `${folder}/chibi-${name}-idle.png`,
     frameCount: 4,
     cellWidth: CELL_WIDTH,
     cellHeight: CELL_HEIGHT,
   };
+}
+
+function sprite(name: string): SpriteSet {
+  return spriteFrom("/sprites", name);
 }
 
 // This sheet has genuine art for every state (verified: a flipped `right`
@@ -117,25 +125,87 @@ export const PURPLE_FACE_LEFT_SPRITES: DirectionalSpriteSet = {
   right: { turning: purpleSprite("right"), settled: purpleSprite("downright") },
 };
 
+// ── Character picker (Me page's "Change Layout") ─────────────────────────
+// Bundles every pose family a selected character needs to stand in for
+// "You" throughout the whole Find scene -- not just the walking pose, but
+// also the two post-arrival phases -- so picking e.g. "Officer" doesn't
+// leave "You" flickering back to the default sheet once arrived.
+
+export interface CharacterSpriteBundle {
+  /** Back-facing / walking-away family (up, upleft, upright) -- "You"'s
+   * pose while approaching. */
+  you: DirectionalSpriteSet;
+  /** Front-facing / toward-camera family (down, downleft, downright) --
+   * "You"'s pose once arrived & settled facing the screen (see FindScene's
+   * arrival phase); also what Friend always uses. */
+  towardCamera: DirectionalSpriteSet;
+  /** Right-profile straight pose for "You" during the face-each-other beat
+   * (see FACE_RIGHT_SPRITES above for why only `straight` is really used). */
+  faceRight: DirectionalSpriteSet;
+  /** Left-profile counterpart, for Friend during the same beat. */
+  faceLeft: DirectionalSpriteSet;
+}
+
+function buildCharacterBundle(folder: string): CharacterSpriteBundle {
+  const s = (name: string) => spriteFrom(folder, name);
+  return {
+    you: {
+      straight: s("up"),
+      left: { turning: s("left"), settled: s("upleft") },
+      right: { turning: s("right"), settled: s("upright") },
+    },
+    towardCamera: {
+      straight: s("down"),
+      left: { turning: s("left"), settled: s("downleft") },
+      right: { turning: s("right"), settled: s("downright") },
+    },
+    faceRight: {
+      straight: s("right"),
+      left: { turning: s("left"), settled: s("downleft") },
+      right: { turning: s("right"), settled: s("downright") },
+    },
+    faceLeft: {
+      straight: s("left"),
+      left: { turning: s("left"), settled: s("downleft") },
+      right: { turning: s("right"), settled: s("downright") },
+    },
+  };
+}
+
+// Keys match the `id`s in Me page's CHARACTER_OPTIONS, which are also what
+// gets persisted as the backend's characterId (see lib/characterState.tsx).
+export const DEFAULT_CHARACTER_ID = "default";
+
+export const CHARACTER_SPRITE_BUNDLES: Record<string, CharacterSpriteBundle> = {
+  [DEFAULT_CHARACTER_ID]: buildCharacterBundle("/sprites"),
+  purple: buildCharacterBundle("/sprites-purple"),
+  hat: buildCharacterBundle("/sprites-hat"),
+  officer: buildCharacterBundle("/sprites-officer"),
+};
+
 // CSS background-image doesn't crossfade -- the old image vanishes the
 // instant a direction switch sets a new url(), even before the new one has
 // loaded, so an image requested for the first time right as it's needed
-// (e.g. swaying "right" for the first time) flashes blank. Preloading every
-// variant up front (see hooks/usePreloadImages.ts) avoids that. Computed
-// once at module load since it never changes.
+// (e.g. swaying "right" for the first time, or switching characters) flashes
+// blank. Preloading every variant up front (see hooks/usePreloadImages.ts)
+// avoids that -- every character bundle is included since "You" can become
+// any of them via the Me page's character picker. Computed once at module
+// load since none of it changes at runtime.
 export const ALL_SPRITE_SRCS: string[] = [
   ...new Set(
-    [YOU_SPRITES, FRIEND_SPRITES, PURPLE_FRIEND_SPRITES, PURPLE_FACE_LEFT_SPRITES].flatMap((set) => [
-      set.straight.walkSrc,
-      set.straight.idleSrc,
-      set.left.turning.walkSrc,
-      set.left.turning.idleSrc,
-      set.left.settled.walkSrc,
-      set.left.settled.idleSrc,
-      set.right.turning.walkSrc,
-      set.right.turning.idleSrc,
-      set.right.settled.walkSrc,
-      set.right.settled.idleSrc,
-    ]),
+    Object.values(CHARACTER_SPRITE_BUNDLES)
+      .flatMap((bundle) => [bundle.you, bundle.towardCamera, bundle.faceRight, bundle.faceLeft])
+      .flatMap((set) => [
+        set.straight.walkSrc,
+        set.straight.idleSrc,
+        set.left.turning.walkSrc,
+        set.left.turning.idleSrc,
+        set.left.settled.walkSrc,
+        set.left.settled.idleSrc,
+        set.right.turning.walkSrc,
+        set.right.turning.idleSrc,
+        set.right.settled.walkSrc,
+        set.right.settled.idleSrc,
+      ]),
   ),
 ];

@@ -11,15 +11,15 @@ import { bearingToSway } from "@/utils/bearingToSway";
 import { PixelModal } from "@/components/ui/PixelModal";
 import { MOCK_FRIENDS } from "@/lib/mockFriends";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
+import { useCharacter } from "@/lib/characterState";
 import { ConnectionLine } from "./ConnectionLine";
 import { ScrollingBackground } from "./ScrollingBackground";
 import { TabBar } from "./TabBar";
 import { GROUND_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
 import {
-  YOU_SPRITES,
-  TOWARD_CAMERA_SPRITES,
-  FACE_RIGHT_SPRITES,
+  CHARACTER_SPRITE_BUNDLES,
+  DEFAULT_CHARACTER_ID,
   PURPLE_FRIEND_SPRITES,
   PURPLE_FACE_LEFT_SPRITES,
   ALL_SPRITE_SRCS,
@@ -88,6 +88,12 @@ export function FindScene() {
   const { me, friend, playing, toggleWalking } = useFindDemo();
   const { distance, bearing } = useDistanceBearing(me, friend);
   const arrived = hasArrived(distance);
+
+  // Whichever character was picked in the Me page's "Change Layout" ->
+  // Character option -- persisted via the backend, so this is the same
+  // choice everywhere, not just on this page (see lib/characterState.tsx).
+  const { characterId } = useCharacter();
+  const myCharacterSprites = CHARACTER_SPRITE_BUNDLES[characterId] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Who "Friend" represents in this walk -- picked via the "Select Friend"
   // popup below. Only the on-screen name/avatar reflect the choice for now;
@@ -196,12 +202,12 @@ export function FindScene() {
   const friendY = isPostArrival ? postY_friend : friendPos.y;
 
   const meSprites = isFaceScreen
-    ? TOWARD_CAMERA_SPRITES
+    ? myCharacterSprites.towardCamera
     : isFaceEachOther
-      ? FACE_RIGHT_SPRITES
-      : YOU_SPRITES;
-  // Friend uses the purple-girl sheet for testing -- "You" is unaffected,
-  // still using the default chibi sets above.
+      ? myCharacterSprites.faceRight
+      : myCharacterSprites.you;
+  // Friend uses the purple-girl sheet for testing -- unrelated to the
+  // character picker above, which only ever affects "You".
   const friendSprites = isFaceScreen
     ? PURPLE_FRIEND_SPRITES
     : isFaceEachOther

@@ -5,6 +5,7 @@ import { TabBar } from "@/components/scene/TabBar";
 import { PixelModal } from "@/components/ui/PixelModal";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { useAuth } from "@/lib/authState";
+import { useCharacter } from "@/lib/characterState";
 
 const CHARACTER_OPTIONS = [
   { id: "default", label: "Classic", pfp: "/sprites/chibi-down-idle.png" },
@@ -22,6 +23,7 @@ type ActiveModal = "profile" | "layout" | null;
 
 export default function MePage() {
   const { logOut } = useAuth();
+  const { characterId, setCharacterId } = useCharacter();
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [layoutTab, setLayoutTab] = useState<"character" | "background">("character");
 
@@ -29,7 +31,6 @@ export default function MePage() {
   const [age, setAge] = useState("24");
   const [bio, setBio] = useState("Just here to find my friends.");
 
-  const [characterId, setCharacterId] = useState("default");
   const [backgroundId, setBackgroundId] = useState("road");
 
   const activeCharacter = CHARACTER_OPTIONS.find((c) => c.id === characterId) ?? CHARACTER_OPTIONS[0];
@@ -154,7 +155,12 @@ export default function MePage() {
             {CHARACTER_OPTIONS.map((option) => (
               <button
                 key={option.id}
-                onClick={() => setCharacterId(option.id)}
+                onClick={() => {
+                  setCharacterId(option.id).catch(() => {
+                    // Reverted optimistically inside setCharacterId already --
+                    // nothing further to do here yet (no toast system).
+                  });
+                }}
                 className="flex flex-col items-center gap-2 p-2 border-4"
                 style={{
                   borderColor: "var(--px-border)",

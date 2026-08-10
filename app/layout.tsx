@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/authState";
 import { AuthGate } from "@/components/auth/AuthGate";
+import { CharacterProvider } from "@/lib/characterState";
 
 export const metadata: Metadata = {
   title: "YaarRadar — Find",
@@ -13,7 +14,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className="h-full">
       <body className="min-h-full flex flex-col">
         <AuthProvider>
-          <AuthGate>{children}</AuthGate>
+          <AuthGate>
+            <CharacterProvider>{children}</CharacterProvider>
+          </AuthGate>
         </AuthProvider>
       </body>
     </html>
