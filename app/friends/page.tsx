@@ -91,7 +91,7 @@ export default function FriendsPage() {
             FRIENDS.length > 0 ? (
               <div className="grid grid-cols-3 gap-y-6 gap-x-2">
                 {FRIENDS.map((friend) => (
-                  <div key={friend.id} className="flex flex-col items-center gap-2 cursor-[url('/pixel-cursor.png')_11_1,_pointer]">
+                  <div key={friend.id} className="flex flex-col items-center gap-2 cursor-[url('/pixelated-icons/cursor.png')_5_1,_pointer]">
                     <div
                       className="px-avatar-circle w-16 h-16"
                       style={{

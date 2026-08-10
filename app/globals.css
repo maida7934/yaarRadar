@@ -62,13 +62,13 @@ body {
   color: var(--px-text);
   font-family: var(--font-pixel);
   margin: 0;
-  /* Default cursor — the pixel hand from our asset */
-  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  /* Default cursor — plain pixel-art arrow, hotspot at the tip */
+  cursor: url('/pixelated-icons/cursor.png') 5 1, pointer;
 }
 
-/* Every interactive element shows the pixel hand */
+/* Every interactive element shows the same pixel cursor */
 button, a, [role="button"] {
-  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  cursor: url('/pixelated-icons/cursor.png') 5 1, pointer;
 }
 
 /* ── Pixel panel — white card with hard black border ───── */
@@ -90,7 +90,7 @@ button, a, [role="button"] {
   font-family: var(--font-pixel);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  cursor: url('/pixelated-icons/cursor.png') 5 1, pointer;
   border: 3px solid var(--px-border);
   outline: none;
   display: inline-flex;
@@ -192,7 +192,7 @@ button, a, [role="button"] {
   border: none;
   background: var(--px-white);
   color: var(--px-text);
-  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  cursor: url('/pixelated-icons/cursor.png') 5 1, pointer;
 }
 .px-segment button + button {
   border-left: 3px solid var(--px-border);
@@ -261,7 +261,7 @@ button, a, [role="button"] {
   text-transform: uppercase;
   background: none;
   border: none;
-  cursor: url('/pixel-cursor.png') 11 1, pointer;
+  cursor: url('/pixelated-icons/cursor.png') 5 1, pointer;
   color: var(--px-muted);
   display: flex;
   flex-direction: column;
