@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
+import { motion, MotionValue, useMotionTemplate, useMotionValue } from "framer-motion";
 
 export interface ScrollingTile {
   src: string;
@@ -21,6 +22,8 @@ interface ScrollingBackgroundProps {
   tile: ScrollingTile;
   /** Scrolls continuously while true, holds still otherwise. */
   isMoving: boolean;
+  offsetX?: MotionValue<number>;
+  offsetY?: MotionValue<number>;
 }
 
 /**
@@ -31,8 +34,10 @@ interface ScrollingBackgroundProps {
  * deliberately, unlike the sprite's stepped frames -- this is a continuous
  * texture translation, not frame-by-frame pixel art.
  */
-export function ScrollingBackground({ tile, isMoving }: ScrollingBackgroundProps) {
+export function ScrollingBackground({ tile, isMoving, offsetX, offsetY }: ScrollingBackgroundProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const dummyOffset = useMotionValue(0);
+  const bgPos = useMotionTemplate`${offsetX || dummyOffset}px ${offsetY || dummyOffset}px`;
 
   useEffect(() => {
     const el = ref.current;
@@ -69,12 +74,13 @@ export function ScrollingBackground({ tile, isMoving }: ScrollingBackgroundProps
   }, [isMoving, tile.nativeWidth, tile.nativeHeight, tile.scrollSeconds]);
 
   return (
-    <div
+    <motion.div
       ref={ref}
       className="absolute inset-0"
       style={{
         backgroundImage: `url("${tile.src}")`,
         backgroundRepeat: "repeat",
+        ...(isMoving ? {} : { backgroundPosition: bgPos }),
       }}
       aria-hidden
     />

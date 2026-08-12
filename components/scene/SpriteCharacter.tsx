@@ -30,7 +30,7 @@ const DISPLAY_SCALE = 1.1;
 // A touch slower than a real walking cadence reads calmer/smoother on a
 // small pixel-art loop -- too fast made the leg-alternation read as a
 // jittery side-to-side dance rather than a stride.
-const SECONDS_PER_FRAME = 0.2;
+const SECONDS_PER_FRAME = 0.1;
 // How far the sway has to commit before switching sprite, and how far back
 // toward center before switching back -- see resolveDirection for why
 // these need to differ (hysteresis, no flicker at the boundary). Both

@@ -23,6 +23,7 @@ export function ConnectionLine({ x1, y1, x2, y2 }: ConnectionLineProps) {
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
       aria-hidden
+      style={{ pointerEvents: "none" }}
     >
       <motion.line
         x1={x1}

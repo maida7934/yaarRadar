@@ -12,6 +12,9 @@ interface UseScreenPositionOptions {
   centerXPercent: number;
   /** Maps a 0 (arrived) - 1 (farthest) closeness value to a vertical percent. */
   closenessToY: (closeness: number) => number;
+  /** Overrides bearingToSway's default cap -- e.g. a wider value for
+   * manually testing how far the layout can visually go. */
+  swayPercent?: number;
 }
 
 // Scale is kept constant so both sprites remain the same visual size
@@ -32,6 +35,7 @@ export function useScreenPosition({
   bearingDegrees,
   centerXPercent,
   closenessToY,
+  swayPercent,
 }: UseScreenPositionOptions): {
   x: MotionValue<number>;
   y: MotionValue<number>;
@@ -67,7 +71,7 @@ export function useScreenPosition({
   const bearingSpring = useSpring(bearingTarget, { stiffness: 25, damping: 14 });
 
   const y = useTransform(closenessSpring, closenessToY);
-  const x = useTransform(bearingSpring, (deg) => centerXPercent + bearingToSway(deg));
+  const x = useTransform(bearingSpring, (deg) => centerXPercent + bearingToSway(deg, swayPercent));
   const scale = useTransform(closenessSpring, () => 1);
 
   return { x, y, scale };
