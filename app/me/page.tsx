@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TabBar } from "@/components/scene/TabBar";
 import { PixelModal } from "@/components/ui/PixelModal";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { useAuth } from "@/lib/authState";
 import { useCharacter } from "@/lib/characterState";
 import { CHARACTER_OPTIONS } from "@/lib/characterAvatars";
+import { getMe, updateMe } from "@/lib/api";
 
 const BACKGROUND_OPTIONS = [
   { id: "road", label: "Stone Road" },
@@ -18,23 +19,42 @@ type ActiveModal = "profile" | "layout" | null;
 interface ProfileMetadata {
   name?: string;
   age?: string;
-  bio?: string;
 }
 
 export default function MePage() {
-  const { user, logOut, updateProfile } = useAuth();
+  const { user, accessToken, logOut, updateProfile } = useAuth();
   const { characterId, setCharacterId, loading: characterLoading } = useCharacter();
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [layoutTab, setLayoutTab] = useState<"character" | "background">("character");
 
-  // Source of truth is the account's own Supabase user record
+  // Name/age still live on the account's own Supabase user record
   // (user_metadata) -- see lib/authState.tsx's updateProfile for why (the
-  // backend has no field for these). Falls back to placeholder copy for a
-  // freshly-signed-up account that's never set any of this yet.
+  // backend still has no field for either). Falls back to placeholder copy
+  // for a freshly-signed-up account that's never set any of this yet.
   const metadata = (user?.user_metadata ?? {}) as ProfileMetadata;
   const name = metadata.name ?? "PlayerOne";
   const age = metadata.age ?? "24";
-  const bio = metadata.bio ?? "Just here to find my friends.";
+
+  // Bio, unlike name/age, is a real backend field now (PATCH/GET
+  // /users/me) -- it's what makes it visible to other people on Friends,
+  // so it has to actually be the backend's copy, not something only this
+  // account's own Supabase session can see.
+  const [bio, setBio] = useState("Just here to find my friends.");
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    getMe(accessToken)
+      .then((profile) => {
+        if (!cancelled && profile.bio) setBio(profile.bio);
+      })
+      .catch(() => {
+        // Leave the placeholder -- Edit Profile still works locally even
+        // if this fetch fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   // Draft copies for the modal's inputs -- only committed to the account on
   // SAVE, reset from the real values each time the modal opens.
@@ -56,7 +76,14 @@ export default function MePage() {
     setSavingProfile(true);
     setProfileError(null);
     try {
-      await updateProfile({ name: draftName, age: draftAge, bio: draftBio });
+      await updateProfile({ name: draftName, age: draftAge });
+      if (accessToken) {
+        // characterId is a required field on this endpoint even when only
+        // bio is actually changing (confirmed live) -- resend the current
+        // pick unchanged rather than making the caller re-specify it.
+        const updated = await updateMe(accessToken, { characterId, bio: draftBio });
+        setBio(updated.bio ?? draftBio);
+      }
       setActiveModal(null);
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : "Could not save. Try again.");

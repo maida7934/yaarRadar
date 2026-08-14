@@ -92,7 +92,7 @@ export function CharacterProvider({ children }: { children: ReactNode }) {
     if (userId) writeCached(userId, id);
     if (!accessToken) return;
     try {
-      await updateMe(accessToken, id);
+      await updateMe(accessToken, { characterId: id });
     } catch (err) {
       setCharacterIdState(previous); // revert if the backend rejected it
       if (userId) writeCached(userId, previous);

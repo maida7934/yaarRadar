@@ -8,7 +8,13 @@
 // searchable already, so there's no privacy reason to scope this.
 const STORAGE_KEY = "yaarradar:knownUsers";
 
-function readAll(): Record<string, string> {
+interface KnownUser {
+  username: string;
+  characterId: string | null;
+  bio?: string | null;
+}
+
+function readAll(): Record<string, KnownUser | string> {
   if (typeof window === "undefined") return {};
   try {
     return JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
@@ -17,11 +23,19 @@ function readAll(): Record<string, string> {
   }
 }
 
-export function rememberUser(id: string, username: string) {
+export function rememberUser(id: string, username: string, characterId: string | null = null, bio: string | null = null) {
   if (typeof window === "undefined") return;
   try {
     const all = readAll();
-    all[id] = username;
+    // Preserve existing characterId/bio if we only got username this time
+    const existing = all[id];
+    let newCharacterId = characterId;
+    let newBio = bio;
+    if (existing && typeof existing === "object") {
+      if (!newCharacterId) newCharacterId = existing.characterId;
+      if (newBio === null) newBio = existing.bio ?? null;
+    }
+    all[id] = { username, characterId: newCharacterId, bio: newBio };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   } catch {
     // Private browsing, storage full, etc. -- fine, just means this
@@ -29,6 +43,13 @@ export function rememberUser(id: string, username: string) {
   }
 }
 
+export function lookupUser(id: string): KnownUser | null {
+  const data = readAll()[id];
+  if (!data) return null;
+  if (typeof data === "string") return { username: data, characterId: null };
+  return data as KnownUser;
+}
+
 export function lookupUsername(id: string): string | null {
-  return readAll()[id] ?? null;
+  return lookupUser(id)?.username ?? null;
 }

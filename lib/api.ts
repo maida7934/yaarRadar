@@ -89,12 +89,15 @@ export function login(email: string, password: string) {
 export interface UserSearchResult {
   id: string;
   username: string;
+  character_id?: string | null;
+  bio?: string | null;
 }
 
 export interface Profile {
   id: string;
   username: string;
   character_id: string | null;
+  bio?: string | null;
   created_at: string;
 }
 
@@ -106,14 +109,26 @@ export function getMe(accessToken: string) {
   return request<Profile>("/users/me", accessToken);
 }
 
-export function updateMe(accessToken: string, characterId: string) {
+export function updateMe(accessToken: string, updates: { characterId?: string; bio?: string }) {
   return request<Profile>("/users/me", accessToken, {
     method: "PATCH",
-    body: JSON.stringify({ characterId }),
+    body: JSON.stringify(updates),
   });
 }
 
 // ── Friends (src/friends/) ───────────────────────────────────────────────
+
+// The other party in the request (sender if you're the receiver, or vice
+// versa) -- confirmed live: GET /friends/requests nests this rather than
+// putting character_id/bio flat on the row, and conveniently includes
+// username too, so a request no longer needs the local userDirectory
+// cache guess to show who it's from.
+export interface RequestOtherUser {
+  id: string;
+  username: string;
+  character_id: string | null;
+  bio: string | null;
+}
 
 export interface FriendRequest {
   id: string;
@@ -121,12 +136,17 @@ export interface FriendRequest {
   receiver_id: string;
   status: "pending" | "accepted" | "declined";
   created_at: string;
+  other_user?: RequestOtherUser;
 }
 
 export interface Friend {
   id: string;
   username: string;
   character_id: string | null;
+  bio?: string | null;
+  // Not sent by the backend yet -- undefined until that lands, so callers
+  // should treat missing/undefined as "assume online" rather than offline.
+  is_online?: boolean;
 }
 
 export function sendFriendRequest(accessToken: string, receiverId: string) {

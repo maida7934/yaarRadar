@@ -250,8 +250,7 @@ button, a, [role="button"] {
 /* ── Bottom tab bar ──────────────────────────────────── */
 .px-tab-bar {
   background: var(--px-white);
-  border-top: 3px solid var(--px-border);
-  box-shadow: 0 -4px 0 var(--px-shadow);
+  border-top: 3px solid #e0bd8f;
 }
 
 .px-tab {
