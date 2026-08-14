@@ -350,12 +350,14 @@ export default function SearchPage() {
             ></span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="px-icon px-icon-search" style={{ color: PINK_DARK, width: 20, height: 20 }} aria-hidden></span>
-            <span style={{ color: PINK_DARK, fontWeight: 700, fontSize: 14 }}>
-              {query ? `${results.length} RESULTS` : "FIND FRIENDS"}
-            </span>
-          </div>
+          {query && (
+            <div className="flex items-center gap-2">
+              <span className="px-icon px-icon-search" style={{ color: PINK_DARK, width: 20, height: 20 }} aria-hidden></span>
+              <span style={{ color: PINK_DARK, fontWeight: 700, fontSize: 14 }}>
+                {results.length} RESULTS
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Content */}

@@ -293,12 +293,11 @@ export default function FriendsPage() {
             </div>
           </div>
 
+          <div className="flex items-center justify-center -mx-6" style={{ marginTop: -6 }}>
           <div
             className="flex flex-col gap-3 p-4"
             style={{
-              marginLeft: -22,
-              marginRight: -22,
-              marginTop: -6,
+              width: "100%",
               backgroundColor: "#eed5b9",
               borderStyle: "solid",
               borderWidth: 8,
@@ -345,6 +344,7 @@ export default function FriendsPage() {
                 )}
               </div>
             </div>
+          </div>
           </div>
         </div>
 
