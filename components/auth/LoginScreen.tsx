@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/authState";
 import { ApiError } from "@/lib/api";
+import { NotchedFrame } from "@/components/ui/NotchedFrame";
 
 type Mode = "login" | "signup";
 
@@ -51,27 +52,67 @@ export function LoginScreen() {
   return (
     <div className="flex flex-1 justify-center" style={{ backgroundColor: "var(--px-border)" }}>
       <div className="w-full max-w-md relative min-h-dvh flex flex-col items-center justify-center p-6 overflow-hidden">
-        {/* Same decorative road-texture background used on Friends/Search/Me */}
-        <div className="absolute inset-0 z-0 px-bg-road" aria-hidden />
+        {/* Background image -- scoped to this app-width container (not the
+            full browser viewport), same as the Friends/Me pages' background
+            image treatment. */}
+        <div
+          className="absolute inset-0 z-0"
+          style={{
+            backgroundImage: "url(/pixelated-icons/bgs.jpg)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+          }}
+          aria-hidden
+        />
 
         <div className="relative z-10 w-full flex flex-col items-center gap-6">
-          <h1
-            className="text-2xl font-bold text-center"
-            style={{ color: "var(--px-white)", textShadow: "3px 3px 0 var(--px-shadow)" }}
-          >
-            YAARRADAR
-          </h1>
+          {/* Heading -- staircase double-outline notched frame (same
+              NotchedFrame technique as the Me page's headings), not an
+              image, so it stays crisp at any width. */}
+          <div className="relative w-full flex items-center justify-center" style={{ height: 52 }}>
+            <NotchedFrame colors={["var(--px-border)", "var(--px-white)", "#bfc08e"]} step={5} ringWidth={3} />
+            <h1
+              className="text-xl font-bold text-center tracking-widest"
+              style={{ color: "#5a4632" }}
+            >
+              YAARRADAR
+            </h1>
+          </div>
 
           <form
             onSubmit={handleSubmit}
-            className="w-full p-5 border-4 border-[var(--px-border)] shadow-[6px_6px_0_var(--px-shadow)] flex flex-col gap-4"
-            style={{ backgroundColor: "var(--px-white)" }}
+            className="relative w-full p-5 flex flex-col gap-4"
           >
-            <div className="px-segment">
-              <button type="button" className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")}>
+            <NotchedFrame colors={["var(--px-border)", "#fdf1e5"]} step={5} ringWidth={4} />
+
+            {/* Mode toggle -- simple single-outline notched box, same plain
+                look as the Friends page's FRIENDS/VIEW REQUESTS container,
+                just code-drawn instead of a cropped PNG. */}
+            <div className="relative flex p-1" style={{ height: 40 }}>
+              <NotchedFrame colors={["var(--px-border)", "#fdf1e5"]} step={4} ringWidth={3} />
+              <button
+                type="button"
+                className="flex-1 text-[11px] font-bold tracking-wide rounded-sm"
+                style={{
+                  fontFamily: "var(--font-pixel)",
+                  color: mode === "login" ? "#ffffff" : "var(--px-text)",
+                  backgroundColor: mode === "login" ? "#706760" : "transparent",
+                }}
+                onClick={() => switchMode("login")}
+              >
                 LOG IN
               </button>
-              <button type="button" className={mode === "signup" ? "active" : ""} onClick={() => switchMode("signup")}>
+              <button
+                type="button"
+                className="flex-1 text-[11px] font-bold tracking-wide rounded-sm"
+                style={{
+                  fontFamily: "var(--font-pixel)",
+                  color: mode === "signup" ? "#ffffff" : "var(--px-text)",
+                  backgroundColor: mode === "signup" ? "#706760" : "transparent",
+                }}
+                onClick={() => switchMode("signup")}
+              >
                 SIGN UP
               </button>
             </div>
@@ -80,7 +121,7 @@ export function LoginScreen() {
               <label className="flex flex-col gap-1">
                 <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>USERNAME</span>
                 <input
-                  className="px-input"
+                  className="px-input login-input"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="letters, numbers, underscore"
@@ -94,7 +135,7 @@ export function LoginScreen() {
             <label className="flex flex-col gap-1">
               <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>EMAIL</span>
               <input
-                className="px-input"
+                className="px-input login-input"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -106,7 +147,7 @@ export function LoginScreen() {
             <label className="flex flex-col gap-1">
               <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>PASSWORD</span>
               <input
-                className="px-input"
+                className="px-input login-input"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
