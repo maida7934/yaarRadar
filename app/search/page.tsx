@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { TabBar } from "@/components/scene/TabBar";
+import { NotchedFrame } from "@/components/ui/NotchedFrame";
 import { useAuth } from "@/lib/authState";
 import {
   searchUsers,
@@ -356,92 +357,15 @@ export default function SearchPage() {
     >
       <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[68px] overflow-hidden">
 
-        {/* ── HEADER BANNER ─────────────────────────────────────────── */}
-        <div className="relative z-10 flex items-center justify-between gap-1 pt-5 px-4">
-          {/* Friends icon box */}
+        {/* ── HEADER BANNER — same staircase notched-frame heading box as
+            the Friends/Me pages, no icons, just "SEARCH" ──────────── */}
+        <div className="relative z-10 pt-5 px-4">
           <div
-            className="flex items-center justify-center shrink-0"
-            style={{
-              width: 50,
-              height: 50,
-              backgroundColor: "#b9d99c",
-              border: "3px solid #6b8453",
-              boxShadow: "inset 0 0 0 2px #d4ecb9",
-              borderRadius: 8,
-              imageRendering: "pixelated",
-            }}
+            className="relative flex items-center justify-center"
+            style={{ width: "100%", height: 56 }}
           >
-            <svg width="28" height="28" viewBox="0 0 18 18" shapeRendering="crispEdges" style={{ imageRendering: "pixelated" }}>
-              {/* Back Left Person */}
-              <path d="M2,5 h4 v1 h1 v2 h-1 v1 h-4 v-1 h-1 v-2 h1 z" fill="#4a6036" />
-              <path d="M3,6 h2 v2 h-2 z" fill="#8cb268" />
-              <path d="M2,9 h4 v1 h1 v4 h-6 v-4 h1 z" fill="#4a6036" />
-              <path d="M3,10 h2 v3 h-2 z" fill="#8cb268" />
-
-              {/* Back Right Person */}
-              <path d="M12,5 h4 v1 h1 v2 h-1 v1 h-4 v-1 h-1 v-2 h1 z" fill="#4a6036" />
-              <path d="M13,6 h2 v2 h-2 z" fill="#8cb268" />
-              <path d="M12,9 h4 v1 h1 v4 h-6 v-4 h1 z" fill="#4a6036" />
-              <path d="M13,10 h2 v3 h-2 z" fill="#8cb268" />
-
-              {/* Center Front Person */}
-              <path d="M7,4 h4 v1 h1 v2 h-1 v1 h-4 v-1 h-1 v-2 h1 z" fill="#3a4d29" />
-              <path d="M8,5 h2 v2 h-2 z" fill="#7da655" />
-              <path d="M7,8 h4 v1 h1 v5 h-6 v-5 h1 z" fill="#3a4d29" />
-              <path d="M8,9 h2 v4 h-2 z" fill="#7da655" />
-            </svg>
-          </div>
-
-          {/* Middle pill — leaf icons flanking the "FRIENDS" text */}
-          <div
-            className="flex-1 flex items-center justify-center gap-2"
-            style={{
-              height: 50,
-              backgroundColor: "#e8eedb",
-              border: "3px solid #6b8453",
-              borderRadius: 10,
-              imageRendering: "pixelated",
-            }}
-          >
-            <img src="/yaarRadar-assets/leaf-transparent.png" alt="" className="w-6 h-6 scale-x-[-1]" style={{ imageRendering: "pixelated" }} />
-            <h1
-              className="font-bold tracking-wider"
-              style={{
-                fontFamily: "var(--font-pixel)",
-                color: "#6b8453",
-                fontSize: 18,
-              }}
-            >
-              FRIENDS
-            </h1>
-            <img src="/yaarRadar-assets/leaf-transparent.png" alt="" className="w-6 h-6" style={{ imageRendering: "pixelated" }} />
-          </div>
-
-          {/* Search icon box */}
-          <div
-            className="flex items-center justify-center shrink-0"
-            style={{
-              width: 50,
-              height: 50,
-              backgroundColor: "#b9d99c",
-              border: "3px solid #6b8453",
-              boxShadow: "inset 0 0 0 2px #d4ecb9",
-              borderRadius: 8,
-              imageRendering: "pixelated",
-            }}
-          >
-            <svg width="24" height="24" viewBox="0 0 16 16" shapeRendering="crispEdges" style={{ imageRendering: "pixelated" }}>
-              {/* Outer stroke */}
-              <path d="M5,2 h4 v1 h2 v2 h1 v4 h-1 v2 h-2 v1 h-4 v-1 h-2 v-2 h-1 v-4 h1 v-2 h2 z" fill="#4a6036" />
-              {/* Handle stroke */}
-              <path d="M10,10 h2 v1 h1 v3 h-1 v1 h-2 v-1 h-1 v-3 h1 z" fill="#4a6036" />
-              {/* Inner glass */}
-              <path d="M6,3 h2 v1 h1 v2 h-1 v2 h-2 v-1 h-1 v-2 h1 z" fill="#e8eedb" />
-              {/* Glass highlight */}
-              <path d="M6,4 h1 v1 h-1 z" fill="#ffffff" />
-              {/* Handle inner */}
-              <path d="M11,11 h1 v3 h-1 z" fill="#6b8453" />
-            </svg>
+            <NotchedFrame colors={["#8C6551", "#F3E8DB", "#bfc08e"]} step={6} ringWidth={4} />
+            <h1 className="text-2xl font-bold tracking-wide" style={{ color: "#5a4632", fontFamily: "var(--font-pixel)" }}>SEARCH</h1>
           </div>
         </div>
 
@@ -540,10 +464,21 @@ export default function SearchPage() {
                 ))
               ) : (
                 <div
-                  className="text-center p-4 text-xs rounded-lg"
-                  style={{ color: "#8C6B3E", backgroundColor: "rgba(253,246,236,0.88)", border: "2px solid #8C6B3E", fontFamily: "var(--font-pixel)" }}
+                  className="flex flex-col items-center gap-3 p-6 rounded-lg"
+                  style={{ backgroundColor: "rgba(253,246,236,0.88)", border: "2px solid #8C6B3E" }}
                 >
-                  No users found.
+                  <p
+                    className="text-xs tracking-widest"
+                    style={{ color: "#8C6B3E", fontFamily: "var(--font-pixel)" }}
+                  >
+                    NO USER FOUND
+                  </p>
+                  <img
+                    src="/pixelated-icons/buttons/no-user-sticker.png"
+                    alt=""
+                    className="w-24 h-auto"
+                    style={{ imageRendering: "pixelated" }}
+                  />
                 </div>
               )}
             </div>
@@ -560,53 +495,22 @@ export default function SearchPage() {
               >
                 <NotchedCardFrame borderColor="#3A2210" fillColor="#FDF5E6" borderWidth={4} step={10} topOnly />
 
-                {/* Vine charms draped over the top-left and top-right
-                    corners -- background flood-filled transparent (source
-                    vine.jpg was a flat opaque JPG) */}
-                <img
-                  src="/yaarRadar-assets/vine-clean.png"
-                  alt=""
-                  className="absolute top-0 left-0 w-14 h-14 opacity-90"
-                  style={{ imageRendering: "pixelated", zIndex: 15 }}
-                />
-                <img
-                  src="/yaarRadar-assets/vine-clean.png"
-                  alt=""
-                  className="absolute top-0 right-0 w-14 h-14 opacity-90 scale-x-[-1]"
-                  style={{ imageRendering: "pixelated", zIndex: 15 }}
-                />
-
-                {/* Trees peeking out from behind the card's corners -- mostly
-                    positioned outside the card bounds, with a negative
-                    zIndex so the sliver that does overlap tucks behind the
-                    card's own cream background instead of sitting on top of
-                    the character/text. Light green bottom-left, brown +
-                    cone stacked on the right. */}
-                <img
-                  src="/yaarRadar-assets/lightgreentree-clean.png"
-                  alt=""
-                  className="absolute"
-                  style={{ bottom: 0, left: -46, width: 108, height: "auto", imageRendering: "pixelated", zIndex: 25 }}
-                />
-                <img
-                  src="/yaarRadar-assets/cone-tree-trans.png"
-                  alt=""
-                  className="absolute"
-                  style={{ bottom: -14, right: 10, width: 70, height: "auto", imageRendering: "pixelated", zIndex: 25 }}
-                />
-                <img
-                  src="/yaarRadar-assets/brown-tre-trans.png"
-                  alt=""
-                  className="absolute"
-                  style={{ bottom: -14, right: -42, width: 100, height: "auto", imageRendering: "pixelated", zIndex: 25 }}
-                />
+                {/* Corner vines -- same corner_vine.jpg charm (and exact
+                    mirroring pattern) as the Me page's profile card, on all
+                    four corners instead of the old two-vine + tree cluster. */}
+                <img src="/yaarRadar-assets/corner_vine.jpg" alt="" className="absolute left-3 top-3 w-16 h-16 opacity-80" style={{ mixBlendMode: "multiply", imageRendering: "pixelated", zIndex: 15 }} />
+                <img src="/yaarRadar-assets/corner_vine.jpg" alt="" className="absolute right-3 top-3 w-16 h-16 opacity-80 scale-x-[-1]" style={{ mixBlendMode: "multiply", imageRendering: "pixelated", zIndex: 15 }} />
+                <img src="/yaarRadar-assets/corner_vine.jpg" alt="" className="absolute right-3 bottom-3 w-16 h-16 opacity-80 scale-x-[-1] scale-y-[-1]" style={{ mixBlendMode: "multiply", imageRendering: "pixelated", zIndex: 15 }} />
+                <img src="/yaarRadar-assets/corner_vine.jpg" alt="" className="absolute left-3 bottom-3 w-16 h-16 opacity-80 scale-y-[-1]" style={{ mixBlendMode: "multiply", imageRendering: "pixelated", zIndex: 15 }} />
 
                 {/* Inner character container */}
                 <div className="relative flex justify-center mb-4" style={{ width: 120, height: 140 }}>
-                  {/* Question / Thinking Bubble */}
-                  <img 
-                    src="/yaarRadar-assets/question-trans.png" 
-                    alt="?" 
+                  {/* Question / Thinking Bubble -- this cat-in-a-box sticker
+                      has no question mark of its own, unlike the earlier
+                      confused-cat art, so the bubble is back. */}
+                  <img
+                    src="/yaarRadar-assets/question-trans.png"
+                    alt="?"
                     className="absolute"
                     style={{
                       top: -10,
@@ -617,14 +521,15 @@ export default function SearchPage() {
                       zIndex: 10,
                     }}
                   />
-                  
-                  {/* Purple girl sprite */}
+
+                  {/* Cat-in-a-box sticker */}
                   <img
-                    src="/yaarRadar-assets/purple-girl-front-clean.png"
+                    src="/pixelated-icons/buttons/box-cat.png"
                     alt="character"
-                    className="absolute bottom-0"
+                    className="absolute"
                     style={{
-                      width: 120,
+                      bottom: 8,
+                      width: 132,
                       height: "auto",
                       imageRendering: "pixelated",
                       objectFit: "contain",

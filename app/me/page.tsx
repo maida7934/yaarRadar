@@ -230,7 +230,7 @@ export default function MePage() {
               {/* Browner fill directly inside the cream outline */}
               <polygon
                 points="18,6 282,6 282,9 285,9 285,12 288,12 288,15 291,15 291,18 294,18 294,34 291,34 291,37 288,37 288,40 285,40 285,43 282,43 282,46 18,46 18,43 15,43 15,40 12,40 12,37 9,37 9,34 6,34 6,18 9,18 9,15 12,15 12,12 15,12 15,9 18,9 18,6"
-                fill="#D4AC8D"
+                fill="#bfc08e"
               />
             </svg>
 
@@ -239,11 +239,10 @@ export default function MePage() {
               <h1
                 className="tracking-widest"
                 style={{
-                  color: "#3A5630",
+                  color: "#5a4632",
                   fontFamily: "var(--font-pixel)",
                   fontSize: 26,
                   fontWeight: 700,
-                  WebkitTextStroke: "1px #3A5630",
                   letterSpacing: "0.1em",
                   margin: 0,
                   lineHeight: 1,
@@ -299,7 +298,7 @@ export default function MePage() {
               />
               <polygon
                 points={notchedRectPoints(8, 8, cardSize.width - 16, cardSize.height - 16, 8)}
-                fill="#D4AC8D"
+                fill="#fdf1e5"
               />
             </svg>
 
@@ -512,7 +511,7 @@ export default function MePage() {
               position: "relative"
             }}
           >
-            <NotchedFrame colors={["#8C6551", "#F3E8DB", "#365224", "#B9D793"]} step={5} ringWidth={4} />
+            <NotchedFrame colors={["#8C6551", "#F3E8DB", "#365224", "#fdf1e5"]} step={5} ringWidth={4} />
 
             {/* OPTIONS ribbon banner — the yaarRadar-assets ribbon art with its
                 background chroma-keyed out (see optionsbg-transparent.png),
@@ -547,10 +546,10 @@ export default function MePage() {
                   position: "relative",
                 }}
               >
-                <NotchedFrame colors={["#365224", "#8FA873", "#94B66B"]} step={5} ringWidth={3.5} />
+                <NotchedFrame colors={["#6b403b", "#d8a4af", "#f7ddd5"]} step={5} ringWidth={3.5} />
                 {/* Icon box */}
-                <div style={{ width: 28, height: 28, backgroundColor: "#84A85B", border: "2px solid #365224", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="#E8F5D8">
+                <div style={{ width: 28, height: 28, backgroundColor: "#d8a4af", border: "2px solid #365224", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="#6b403b">
                     <rect x="5" y="1" width="6" height="6" rx="1" />
                     <path d="M3 14V11C3 9.5 4 8.5 8 8.5C12 8.5 13 9.5 13 11V14H3Z" />
                   </svg>
