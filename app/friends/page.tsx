@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { TabBar } from "@/components/scene/TabBar";
-import { PixelModal } from "@/components/ui/PixelModal";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { characterAvatarSrc } from "@/lib/characterAvatars";
@@ -18,21 +17,86 @@ import {
   type Friend,
 } from "@/lib/api";
 
-const GENERIC_AVATAR = "/pixelated-icons/profile-avatar.png";
-
 // Soft pastel palette for this page only -- deliberately not touched in
 // globals.css/TabBar/PixelModal, which every other page still relies on, so
-// this reskin can't leak anywhere else. Cycled per friend card for the
-// mixed color-coding look (blue/pink/mint pill+dot per card).
-const SKY_TOP = "#bfe3f5";
-const SKY_BOTTOM = "#f7ecd9";
+// this reskin can't leak anywhere else.
+const SKY_BOTTOM = "#e9f5da";
+const PAGE_OUTER_BG = "#c3dba0";
 const CARD = "#fdf6ec";
 const BORDER = "#e0bd8f";
 const TEXT_DARK = "#5a4632";
 const TEXT_MUTED = "#a68a6d";
 const PINK_DARK = "#d97891";
 const RED = "#d9776a";
-const ACCENTS = ["#9494e0", "#ec9bb0", "#7bcaa4"];
+
+/** A rectangle with a 2-step pixel staircase cut into each corner, as an SVG
+ * `points` string -- same notched-corner language as the "MY PROFILE"
+ * banner on the Me page, ported here so the FRIENDS title bar can use it
+ * too. */
+function notchedRectPoints(x0: number, y0: number, w: number, h: number, s: number): string {
+  const points: [number, number][] = [
+    [x0 + 2 * s, y0],
+    [x0 + w - 2 * s, y0],
+    [x0 + w - 2 * s, y0 + s],
+    [x0 + w - s, y0 + s],
+    [x0 + w - s, y0 + 2 * s],
+    [x0 + w, y0 + 2 * s],
+    [x0 + w, y0 + h - 2 * s],
+    [x0 + w - s, y0 + h - 2 * s],
+    [x0 + w - s, y0 + h - s],
+    [x0 + w - 2 * s, y0 + h - s],
+    [x0 + w - 2 * s, y0 + h],
+    [x0 + 2 * s, y0 + h],
+    [x0 + 2 * s, y0 + h - s],
+    [x0 + s, y0 + h - s],
+    [x0 + s, y0 + h - 2 * s],
+    [x0, y0 + h - 2 * s],
+    [x0, y0 + 2 * s],
+    [x0 + s, y0 + 2 * s],
+    [x0 + s, y0 + s],
+    [x0 + 2 * s, y0 + s],
+  ];
+  return points.map(([x, y]) => `${x},${y}`).join(" ");
+}
+
+/** Notched-corner banner background, sized to its own parent via
+ * ResizeObserver -- a stack of concentric filled rings, same technique as
+ * the "MY PROFILE" banner on the Me page (nested notchedRectPoints
+ * polygons, outer to inner). `colors` goes outer -> inner; the last color
+ * is the FRIENDS bar's own existing fill, kept unchanged, with the brownish
+ * Me-page rings wrapped around the outside of it. */
+function NotchedBanner({ colors, step = 6, ringWidth = 4 }: { colors: string[]; step?: number; ringWidth?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setSize({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className="absolute inset-0 pointer-events-none" style={{ zIndex: -1 }} aria-hidden>
+      {size.width > 0 && size.height > 0 && (
+        <svg className="absolute inset-0" width="100%" height="100%" viewBox={`0 0 ${size.width} ${size.height}`} shapeRendering="crispEdges">
+          {colors.map((color, i) => {
+            const inset = i * ringWidth;
+            return (
+              <polygon
+                key={i}
+                points={notchedRectPoints(inset, inset, size.width - inset * 2, size.height - inset * 2, step)}
+                fill={color}
+              />
+            );
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
 
 // GET /friends/requests only returns sender_id/receiver_id (raw ids), no
 // username -- confirmed against the live backend, there's no endpoint to
@@ -222,8 +286,10 @@ export default function FriendsPage() {
   }, [accessToken, user]);
 
   useEffect(() => {
-    loadFriends();
-    loadRequests();
+    queueMicrotask(() => {
+      loadFriends();
+      loadRequests();
+    });
   }, [loadFriends, loadRequests]);
 
   const respond = async (id: string, action: "accept" | "decline") => {
@@ -257,14 +323,14 @@ export default function FriendsPage() {
   };
 
   return (
-    <div className="flex flex-1 justify-center" style={{ backgroundColor: BORDER }}>
+    <div className="flex flex-1 justify-center" style={{ backgroundColor: PAGE_OUTER_BG }}>
       <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[68px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
 
         {/* Page background image */}
         <div
           className="absolute inset-0 z-0"
           style={{ 
-            backgroundImage: "url(/yaarRadar-assets/bg.jpeg)",
+            backgroundImage: "url(/yaarRadar-assets/bg.jpg)",
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}
@@ -275,35 +341,24 @@ export default function FriendsPage() {
         <div
           className="relative z-10 p-6 flex flex-col gap-2"
         >
-          <div className="flex items-center justify-center -mx-6">
+          <div className="flex items-center justify-center">
             <div
-              className="flex items-center justify-center"
-              style={{
-                width: "100%",
-                height: 56,
-                backgroundColor: "#bfc08e",
-                backgroundImage: "url(/pixelated-icons/buttons/heading-banner.png)",
-                backgroundSize: "100% 100%",
-                backgroundRepeat: "no-repeat",
-                imageRendering: "pixelated",
-                borderRadius: 16,
-              }}
+              className="relative flex items-center justify-center"
+              style={{ width: "100%", height: 56 }}
             >
+              <NotchedBanner colors={["#8C6551", "#F3E8DB", "#bfc08e"]} step={6} ringWidth={4} />
               <h1 className="text-2xl font-bold tracking-wide" style={{ color: TEXT_DARK }}>FRIENDS</h1>
             </div>
           </div>
 
-          <div className="flex items-center justify-center -mx-6" style={{ marginTop: -6 }}>
+          <div className="flex items-center justify-center" style={{ marginTop: -6 }}>
           <div
-            className="flex flex-col gap-3 p-4"
+            className="relative flex flex-col gap-3 p-4"
             style={{
               width: "100%",
-              backgroundColor: "#eed5b9",
-              borderStyle: "solid",
-              borderWidth: 8,
-              borderImageSource: "url(/pixelated-icons/buttons/friends-section-container.png)",
-              borderImageSlice: 28,
-              borderImageRepeat: "stretch",
+              backgroundColor: "#d4ecb9",
+              border: "3px solid #6b8453",
+              boxShadow: "inset 0 0 0 2px #eaf5db",
               imageRendering: "pixelated",
               minHeight: "110px",
               borderRadius: 16,
@@ -357,9 +412,8 @@ export default function FriendsPage() {
               <div className="text-center p-8 text-sm font-bold" style={{ color: RED }}>{friendsError}</div>
             ) : friends.length > 0 ? (
               <div className="grid grid-cols-2 gap-4">
-                {friends.map((friend, i) => {
+                {friends.map((friend) => {
                   const pfp = characterAvatarSrc(friend.character_id);
-                  const accent = ACCENTS[i % ACCENTS.length];
                   return (
                     <button
                       key={friend.id}
