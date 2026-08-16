@@ -123,17 +123,22 @@ export default function MePage() {
     return () => observer.disconnect();
   }, []);
 
-  const metadata = (user?.user_metadata ?? {}) as ProfileMetadata;
+  const metadata = (user?.user_metadata ?? {}) as ProfileMetadata & { bio?: string };
   const name = metadata.name ?? "PlayerOne";
   const gender = metadata.gender ?? GENDER_OPTIONS[0];
 
-  const [bio, setBio] = useState("Just here to find my friends.");
+  const [bio, setBio] = useState(metadata.bio ?? "Just here to find my friends.");
   useEffect(() => {
     if (!accessToken) return;
     let cancelled = false;
     getMe(accessToken)
       .then((profile) => {
-        if (!cancelled && profile.bio) setBio(profile.bio);
+        if (!cancelled && profile.bio) {
+          setBio(profile.bio);
+          if (profile.bio !== metadata.bio && updateProfile) {
+            updateProfile({ bio: profile.bio }).catch(() => { });
+          }
+        }
       })
       .catch(() => {
         // Leave the placeholder -- Edit Profile still works locally even
@@ -142,7 +147,7 @@ export default function MePage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, metadata.bio, updateProfile]);
 
   const [draftName, setDraftName] = useState(name);
   const [draftGender, setDraftGender] = useState(gender);
@@ -162,7 +167,7 @@ export default function MePage() {
     setSavingProfile(true);
     setProfileError(null);
     try {
-      await updateProfile({ name: draftName, gender: draftGender });
+      await updateProfile({ name: draftName, gender: draftGender, bio: draftBio });
       if (accessToken) {
         const updated = await updateMe(accessToken, { characterId, bio: draftBio });
         setBio(updated.bio ?? draftBio);
@@ -255,19 +260,20 @@ export default function MePage() {
           </div>
         </div>
 
-        {/* ── Scrollable content ───────────────────────────────────── */}
-        <div className="relative z-10 flex-1 overflow-y-auto px-4 flex flex-col gap-4">
+        {/* ── Content ───────────────────────────────────── */}
+        <div className="relative z-10 flex-1 overflow-hidden px-4 flex flex-col gap-4 pb-3">
 
           {/* ── Profile card ─────────────────────────────────────── */}
           <div
             ref={cardRef}
-            className="flex flex-col items-center gap-4 mt-2"
+            className="flex flex-col items-center justify-center gap-3"
             style={{
               position: "relative",
               overflow: "hidden",
-              padding: "48px 18px 40px",
+              padding: "20px 18px",
               marginLeft: 4,
               marginRight: 4,
+              flex: 1.7,
             }}
           >
             {/* Frame — same drawn, notched-outline shape as the "MY PROFILE"
@@ -314,7 +320,7 @@ export default function MePage() {
             <ProfileCloud className="absolute right-[6%] top-[9%] opacity-80 w-20 h-10" />
             <ProfileCloud className="absolute left-[10%] bottom-[20%] opacity-80 w-16 h-8" />
             <ProfileCloud className="absolute right-[8%] bottom-[27%] opacity-70 w-16 h-8" />
-            
+
             {/* Green Sparkles around */}
             <ProfileSparkle className="absolute right-[22%] top-[32%] w-3 h-3 opacity-100" />
             <ProfileSparkle className="absolute left-[14%] top-[45%] w-4 h-4 opacity-100" />
@@ -337,7 +343,7 @@ export default function MePage() {
                   (no gap this time), then the cream base fill underneath the
                   avatar. Corners are a stair-stepped pixel cut (not a smooth
                   border-radius arc) to match the app's pixel-art style. */}
-              <div style={{ width: 140, height: 140, position: "relative" }}>
+              <div style={{ width: 132, height: 132, position: "relative" }}>
                 <svg
                   className="absolute inset-0"
                   width="100%"
@@ -430,16 +436,16 @@ export default function MePage() {
               >
                 {name}☆
               </h2>
-              
+
               <div className="flex items-center gap-2 mt-1 mb-2 opacity-60 w-full max-w-[200px] justify-center">
-                 <div style={{ flex: 1, height: 1, backgroundColor: "#964B00" }} />
-                 <img
-                   src="/yaarRadar-assets/leaf-transparent.png"
-                   alt=""
-                   className="w-7 h-7"
-                   style={{ imageRendering: "pixelated", flexShrink: 0, transform: "rotate(-20deg)" }}
-                 />
-                 <div style={{ flex: 1, height: 1, backgroundColor: "#964B00" }} />
+                <div style={{ flex: 1, height: 1, backgroundColor: "#964B00" }} />
+                <img
+                  src="/yaarRadar-assets/leaf-transparent.png"
+                  alt=""
+                  className="w-7 h-7"
+                  style={{ imageRendering: "pixelated", flexShrink: 0, transform: "rotate(-20deg)" }}
+                />
+                <div style={{ flex: 1, height: 1, backgroundColor: "#964B00" }} />
               </div>
 
               {/* Bio with inline SVG sparkles on sides */}
@@ -503,12 +509,13 @@ export default function MePage() {
 
           {/* ── OPTIONS section ──────────────────────────────────── */}
           <div
-            className="flex flex-col items-center gap-4 -mt-2 mb-2"
+            className="flex flex-col items-center justify-center gap-4"
             style={{
-              padding: "50px 14px 46px",
+              padding: "44px 14px 28px",
               marginLeft: 4,
               marginRight: 4,
-              position: "relative"
+              position: "relative",
+              flex: 1.3,
             }}
           >
             <NotchedFrame colors={["#8C6551", "#F3E8DB", "#365224", "#fdf1e5"]} step={5} ringWidth={4} />
@@ -534,21 +541,21 @@ export default function MePage() {
               </span>
             </div>
 
-            <div className="w-full flex flex-col gap-2.5 px-1.5">
+            <div className="relative z-10 w-full flex flex-col gap-2 px-1.5">
               {/* ── Edit Profile ───────────────────────────── */}
               <button
                 id="btn-edit-profile"
                 onClick={openProfileModal}
                 className="w-full flex items-center gap-3 active:scale-95 transition-transform"
                 style={{
-                  padding: "14px 12px",
+                  padding: "18px 12px",
                   textAlign: "left",
                   position: "relative",
                 }}
               >
                 <NotchedFrame colors={["#6b403b", "#d8a4af", "#f7ddd5"]} step={5} ringWidth={3.5} />
                 {/* Icon box */}
-                <div style={{ width: 28, height: 28, backgroundColor: "#d8a4af", border: "2px solid #365224", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: 32, height: 32, backgroundColor: "#d8a4af", border: "2px solid #365224", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="#6b403b">
                     <rect x="5" y="1" width="6" height="6" rx="1" />
                     <path d="M3 14V11C3 9.5 4 8.5 8 8.5C12 8.5 13 9.5 13 11V14H3Z" />
@@ -557,7 +564,7 @@ export default function MePage() {
                 {/* Text */}
                 <div className="flex-1 flex flex-col gap-0.5">
                   <span className="text-xs font-bold tracking-wide" style={{ color: "#2C421C", fontFamily: "var(--font-pixel)" }}>EDIT PROFILE</span>
-                  <span className="text-[9px]" style={{ color: "#4A6D36", fontFamily: "var(--font-pixel)" }}>Update your info and avatar</span>
+                  <span className="text-[9px]" style={{ color: "#4A6D36", fontFamily: "var(--font-pixel)" }}>Update your info</span>
                 </div>
                 <span className="text-base font-bold shrink-0" style={{ color: "#2C421C" }}>›</span>
               </button>
@@ -568,13 +575,13 @@ export default function MePage() {
                 onClick={() => setActiveModal("layout")}
                 className="w-full flex items-center gap-3 active:scale-95 transition-transform"
                 style={{
-                  padding: "14px 12px",
+                  padding: "18px 12px",
                   textAlign: "left",
                   position: "relative",
                 }}
               >
                 <NotchedFrame colors={["#365224", "#8FA873", "#E1EDCB"]} step={5} ringWidth={3.5} />
-                <div style={{ width: 28, height: 28, backgroundColor: "#D5E4BB", border: "2px solid #365224", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: 32, height: 32, backgroundColor: "#D5E4BB", border: "2px solid #365224", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <svg width="18" height="14" viewBox="0 0 20 16" fill="#365224">
                     <rect x="1" y="4" width="4" height="4" rx="1" />
                     <path d="M0 14V12C0 11 1 10 3 10C5 10 6 11 6 12V14H0Z" />
@@ -597,13 +604,13 @@ export default function MePage() {
                 onClick={logOut}
                 className="w-full flex items-center gap-3 active:scale-95 transition-transform"
                 style={{
-                  padding: "14px 12px",
+                  padding: "18px 12px",
                   textAlign: "left",
                   position: "relative",
                 }}
               >
                 <NotchedFrame colors={["#5C4528", "#8C6551", "#BCA782"]} step={5} ringWidth={3.5} />
-                <div style={{ width: 28, height: 28, backgroundColor: "#A89069", border: "2px solid #5C4528", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: 32, height: 32, backgroundColor: "#A89069", border: "2px solid #5C4528", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="#F0DEC3" strokeWidth="2">
                     <rect x="3" y="2" width="7" height="14" rx="1" />
                     <path d="M10 9H16 M14 6L17 9L14 12" strokeLinecap="square" strokeLinejoin="round" />
@@ -667,11 +674,11 @@ export default function MePage() {
             <div className="p-4 flex flex-col gap-3">
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold" style={{ color: "#6B4731" }}>NAME</span>
-                <input className="px-input" value={draftName} onChange={(e) => setDraftName(e.target.value)} />
+                <input className="px-input login-input" style={{ backgroundColor: "#ffffff" }} value={draftName} onChange={(e) => setDraftName(e.target.value)} />
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold" style={{ color: "#6B4731" }}>GENDER</span>
-                <select className="px-input" value={draftGender} onChange={(e) => setDraftGender(e.target.value)}>
+                <select className="px-input login-input w-full" style={{ backgroundColor: "#ffffff" }} value={draftGender} onChange={(e) => setDraftGender(e.target.value)}>
                   {GENDER_OPTIONS.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
@@ -679,7 +686,7 @@ export default function MePage() {
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold" style={{ color: "#6B4731" }}>BIO</span>
-                <input className="px-input" value={draftBio} onChange={(e) => setDraftBio(e.target.value)} />
+                <input className="px-input login-input" style={{ backgroundColor: "#ffffff" }} value={draftBio} onChange={(e) => setDraftBio(e.target.value)} />
               </label>
               {profileError && (
                 <p className="text-[10px] font-bold" style={{ color: "#C97F80" }}>{profileError}</p>
@@ -784,7 +791,7 @@ export default function MePage() {
                     <button
                       key={option.id}
                       onClick={() => {
-                        setCharacterId(option.id).catch(() => {});
+                        setCharacterId(option.id).catch(() => { });
                       }}
                       className="flex flex-col items-center gap-2 p-3"
                       style={{
@@ -830,12 +837,9 @@ export default function MePage() {
                       onClick={() => setBackgroundId(option.id)}
                       className="flex items-center gap-3 p-3"
                       style={{
-                        backgroundColor: option.id === backgroundId ? "#C2D6AD" : "var(--px-white)",
-                        backgroundImage: "url(/pixelated-icons/buttons/background-choice-box.png)",
-                        backgroundSize: "100% 100%",
-                        backgroundRepeat: "no-repeat",
-                        imageRendering: "pixelated",
-                        borderRadius: 16,
+                        backgroundColor: option.id === backgroundId ? "#C2D6AD" : "#fdf1e5",
+                        border: "2px solid #6B4731",
+                        borderRadius: 10,
                       }}
                     >
                       <div

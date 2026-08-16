@@ -10,6 +10,7 @@ import {
   unfriend,
   getFriends,
   getFriendRequests,
+  cancelFriendRequest,
   ApiError,
   type UserSearchResult,
   type FriendRequest,
@@ -168,6 +169,7 @@ function UserRow({
   characterId,
   requestState,
   onSendRequest,
+  onCancelRequest,
   onUnfriend,
   onViewProfile,
 }: {
@@ -176,6 +178,7 @@ function UserRow({
   characterId: string | null | undefined;
   requestState: RequestState;
   onSendRequest: () => void;
+  onCancelRequest: () => void;
   onUnfriend: () => void;
   onViewProfile: () => void;
 }) {
@@ -214,20 +217,19 @@ function UserRow({
             pressedSrc="/pixelated-icons/request-btn-b-pressed.png"
             pressedTextColor="#ffffff"
             onClick={onUnfriend}
-            style={{ width: 72, height: 28 }}
+            style={{ width: 110, height: 34, fontSize: 11 }}
           >
             UNFRIEND
           </ActionPillButton>
         ) : requestState === "sent-pending" ? (
           <ActionPillButton
-            normalSrc="/pixelated-icons/buttons/pill-green.png"
-            pressedSrc="/pixelated-icons/buttons/pill-green-pressed.png"
+            normalSrc="/pixelated-icons/request-btn-b.png"
+            pressedSrc="/pixelated-icons/request-btn-b-pressed.png"
             pressedTextColor="#ffffff"
-            onClick={() => {}}
-            disabled
-            style={{ width: 80, height: 28 }}
+            onClick={onCancelRequest}
+            style={{ width: 110, height: 34, fontSize: 11 }}
           >
-            REQUESTED
+            UNREQUEST
           </ActionPillButton>
         ) : requestState === "incoming-pending" ? (
           <ActionPillButton
@@ -236,17 +238,17 @@ function UserRow({
             pressedTextColor="#ffffff"
             onClick={() => {}}
             disabled
-            style={{ width: 80, height: 28, fontSize: 7 }}
+            style={{ width: 90, height: 30, fontSize: 8 }}
           >
             CHECK FRIENDS
           </ActionPillButton>
         ) : (
           <ActionPillButton
-            normalSrc="/pixelated-icons/buttons/pill-green.png"
-            pressedSrc="/pixelated-icons/buttons/pill-green-pressed.png"
+            normalSrc="/pixelated-icons/request-btn-b.png"
+            pressedSrc="/pixelated-icons/request-btn-b-pressed.png"
             pressedTextColor="#ffffff"
             onClick={onSendRequest}
-            style={{ width: 90, height: 28 }}
+            style={{ width: 110, height: 34, fontSize: 11 }}
           >
             SEND REQUEST
           </ActionPillButton>
@@ -348,6 +350,19 @@ export default function SearchPage() {
     }
   };
 
+  const cancelRequest = async (id: string) => {
+    if (!accessToken || !user) return;
+    setRequestErrorId(null);
+    const request = myRequests.find((r) => (r.receiver_id === id && r.sender_id === user.id));
+    if (!request) return;
+    try {
+      await cancelFriendRequest(accessToken, request.id);
+      setMyRequests((prev) => prev.filter((r) => r.id !== request.id));
+    } catch {
+      setRequestErrorId(id);
+    }
+  };
+
   return (
     <div
       className="flex flex-1 justify-center"
@@ -387,22 +402,17 @@ export default function SearchPage() {
         >
 
         {/* ── SEARCH BAR ────────────────────────────────────────────── */}
-        <div className="relative z-10 px-2 pt-2 pb-2">
-          {/* Bamboo banner wrapped around the search input */}
+        <div className="relative z-10 px-4 pt-4 pb-2">
+          {/* Search input container */}
           <div
-            className="relative flex items-center justify-center"
+            className="relative flex items-center justify-center bg-[#FDF5E6] rounded-xl border-[3px] border-[#6b8453]"
             style={{
-              backgroundImage: "url(/yaarRadar-assets/banner-transparent-centered.png)",
-              backgroundSize: "100% 100%",
-              backgroundRepeat: "no-repeat",
-              imageRendering: "pixelated",
-              padding: "24px 34px",
+              padding: "12px 16px",
               width: "100%",
-              minHeight: "96px",
             }}
           >
             <div className="flex w-full items-center gap-3">
-              <svg width="34" height="34" viewBox="0 0 16 16" shapeRendering="crispEdges" className="shrink-0" style={{ imageRendering: "pixelated", marginLeft: 22 }}>
+              <svg width="24" height="24" viewBox="0 0 16 16" shapeRendering="crispEdges" className="shrink-0" style={{ imageRendering: "pixelated" }}>
                 <path d="M5,2 h4 v1 h2 v2 h1 v4 h-1 v2 h-2 v1 h-4 v-1 h-2 v-2 h-1 v-4 h1 v-2 h2 z" fill="#4a6036" />
                 <path d="M10,10 h2 v1 h1 v3 h-1 v1 h-2 v-1 h-1 v-3 h1 z" fill="#4a6036" />
                 <path d="M6,3 h2 v1 h1 v2 h-1 v2 h-2 v-1 h-1 v-2 h1 z" fill="#e8eedb" />
@@ -414,7 +424,7 @@ export default function SearchPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Find friends by username"
-                className="flex-1 text-sm outline-none bg-transparent placeholder-[#6b8453] min-w-0"
+                className="flex-1 text-sm outline-none bg-transparent placeholder-[#8c9c7d] min-w-0"
                 style={{
                   fontFamily: "var(--font-pixel)",
                   color: "#2C421C",
@@ -452,6 +462,7 @@ export default function SearchPage() {
                       characterId={friendCharacters.get(resultUser.id)}
                       requestState={user ? resolveRequestState(myRequests, user.id, resultUser.id) : "none"}
                       onSendRequest={() => sendRequest(resultUser.id)}
+                      onCancelRequest={() => cancelRequest(resultUser.id)}
                       onUnfriend={() => removeFriend(resultUser.id)}
                       onViewProfile={() => setViewingUser(resultUser)}
                     />
@@ -663,11 +674,20 @@ export default function SearchPage() {
                 ) : user && resolveRequestState(myRequests, user.id, viewingUser.id) === "none" ? (
                   <button
                     onClick={() => { sendRequest(viewingUser.id); setViewingUser(null); }}
-                    className="flex-1 py-2 px-2 border-4 border-[#314a38] rounded-xl font-bold text-white tracking-widest active:scale-95 transition-transform relative overflow-hidden"
-                    style={{ backgroundColor: "#749270", fontFamily: "var(--font-pixel)" }}
+                    className="flex-1 py-3 px-2 border-4 border-[#69312b] rounded-xl font-bold text-white tracking-widest active:scale-95 transition-transform relative overflow-hidden"
+                    style={{ backgroundColor: "#d48275", fontFamily: "var(--font-pixel)" }}
                   >
-                    <div className="absolute inset-1 border-[2px] border-dashed border-[#8eb488] rounded-lg pointer-events-none opacity-60" />
-                    <span className="relative z-10 text-sm">SEND REQUEST</span>
+                    <div className="absolute inset-1 border-[2px] border-dashed border-[#e69f94] rounded-lg pointer-events-none opacity-60" />
+                    <span className="relative z-10 text-base">SEND REQUEST</span>
+                  </button>
+                ) : user && resolveRequestState(myRequests, user.id, viewingUser.id) === "sent-pending" ? (
+                  <button
+                    onClick={() => { cancelRequest(viewingUser.id); setViewingUser(null); }}
+                    className="flex-1 py-3 px-2 border-4 border-[#69312b] rounded-xl font-bold text-white tracking-widest active:scale-95 transition-transform relative overflow-hidden"
+                    style={{ backgroundColor: "#d48275", fontFamily: "var(--font-pixel)" }}
+                  >
+                    <div className="absolute inset-1 border-[2px] border-dashed border-[#e69f94] rounded-lg pointer-events-none opacity-60" />
+                    <span className="relative z-10 text-base">UNREQUEST</span>
                   </button>
                 ) : (
                   <button
@@ -676,11 +696,7 @@ export default function SearchPage() {
                     style={{ backgroundColor: "#b5a48c", fontFamily: "var(--font-pixel)" }}
                   >
                     <div className="absolute inset-1 border-[2px] border-dashed border-[#c4b8a0] rounded-lg pointer-events-none opacity-60" />
-                    <span className="relative z-10 text-sm">
-                      {user && resolveRequestState(myRequests, user.id, viewingUser.id) === "sent-pending"
-                        ? "REQUESTED"
-                        : "CHECK FRIENDS"}
-                    </span>
+                    <span className="relative z-10 text-sm">CHECK FRIENDS</span>
                   </button>
                 )}
               </div>

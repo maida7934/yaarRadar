@@ -160,6 +160,10 @@ export function getFriendRequests(accessToken: string) {
   return request<FriendRequest[]>("/friends/requests", accessToken);
 }
 
+export function cancelFriendRequest(accessToken: string, id: string) {
+  return request<null>(`/friends/requests/${id}`, accessToken, { method: "DELETE" });
+}
+
 export function acceptFriendRequest(accessToken: string, id: string) {
   return request<FriendRequest>(`/friends/requests/${id}/accept`, accessToken, { method: "POST" });
 }
