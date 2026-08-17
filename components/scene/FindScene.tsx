@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useMotionValue, useAnimationFrame } from "framer-motion";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { motion, useMotionValue, useAnimationFrame, useTransform } from "framer-motion";
+import gsap from "gsap";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
+import { supabase } from "@/lib/supabaseClient";
 import { getFriends, type Friend } from "@/lib/api";
 import { ConnectionLine } from "./ConnectionLine";
-import { ScrollingBackground } from "./ScrollingBackground";
 import { TabBar } from "./TabBar";
-import { GROUND_TILE } from "./backgroundTiles";
 import { SpriteCharacter } from "./SpriteCharacter";
 import {
   CHARACTER_SPRITE_BUNDLES,
@@ -18,33 +18,85 @@ import {
   type CharacterSpriteBundle,
   type DirectionalSpriteSet,
 } from "./spriteSets";
-import { PixelModal } from "@/components/ui/PixelModal";
+import { NotchedFrame } from "@/components/ui/NotchedFrame";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 
-const TEST_ANCHOR_X_PERCENT = 50;
-const TEST_ANCHOR_Y_PERCENT = 65;
+// ── Game world ────────────────────────────────────────────────────────
+// World coordinates are the background image's own native pixel grid --
+// (0,0) is its top-left corner, (WORLD_WIDTH, WORLD_HEIGHT) its
+// bottom-right. WORLD_SCALE is purely a *rendering* multiplier (keeps the
+// pixel art crisp/blocky at phone-screen size) and never enters the
+// world-coordinate math itself, so distance/bearing stay scale-independent.
+const WORLD_WIDTH = 1536;
+const WORLD_HEIGHT = 1024;
+const WORLD_SCALE = 1.4;
+// Each world-pixel is this many "meters" for the HUD readout -- tuned so
+// the ~40m default gap between Me and the test friend spawn point (see
+// SPAWN_SCREEN_OFFSET_* below) lands on the same "40m that way" example
+// CLAUDE.md uses for a nearby friend.
+const METERS_PER_WORLD_UNIT = 0.47;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
 export function FindScene() {
   usePreloadImages(ALL_SPRITE_SRCS);
 
   const keysRef = useRef<Record<string, boolean>>({});
-  
-  // Independent World Coordinates for both characters
-  const meWorldX = useMotionValue(0);
-  const meWorldY = useMotionValue(0);
-  
-  const friendWorldX = useMotionValue(20);
-  const friendWorldY = useMotionValue(-30);
 
-  // Screen coordinates for rendering
-  const meScreenX = useMotionValue(TEST_ANCHOR_X_PERCENT);
-  const meScreenY = useMotionValue(TEST_ANCHOR_Y_PERCENT);
-  const friendScreenX = useMotionValue(TEST_ANCHOR_X_PERCENT + 20);
-  const friendScreenY = useMotionValue(TEST_ANCHOR_Y_PERCENT - 30);
-  
-  // Background scrolling offset (moves inverse to Me)
-  const bgOffsetX = useMotionValue(0);
-  const bgOffsetY = useMotionValue(0);
+  // World coordinates for both characters -- the only positions distance/
+  // bearing are ever computed from. Me spawns near the world's center; the
+  // friend spawns SPAWN_SCREEN_OFFSET_* *screen* pixels away at the current
+  // WORLD_SCALE (converted to world-units below) -- expressing the spawn
+  // gap in screen pixels, not raw world-units, is what actually guarantees
+  // both characters land on-screen together with a visible gap between
+  // them, regardless of how WORLD_SCALE gets tuned later. (A raw world-unit
+  // offset picked without accounting for WORLD_SCALE previously put the
+  // friend most of a viewport-width off to the side -- clipped out of view
+  // by the root's overflow-hidden, which is what read as "no distance
+  // between them": only Me, plus a connecting line clipped down to a
+  // barely-visible stub, was ever actually on screen.)
+  const SPAWN_SCREEN_OFFSET_X = 70;
+  const SPAWN_SCREEN_OFFSET_Y = -95;
+
+  const meWorldX = useMotionValue(WORLD_WIDTH / 2);
+  const meWorldY = useMotionValue(WORLD_HEIGHT / 2);
+
+  const friendWorldX = useMotionValue(WORLD_WIDTH / 2 + SPAWN_SCREEN_OFFSET_X / WORLD_SCALE);
+  const friendWorldY = useMotionValue(WORLD_HEIGHT / 2 + SPAWN_SCREEN_OFFSET_Y / WORLD_SCALE);
+
+  // Screen coordinates for rendering -- percent of the game viewport, same
+  // API SpriteCharacter/ConnectionLine already expect. Derived each frame
+  // from world position relative to the camera (see useAnimationFrame
+  // below), not set directly.
+  const meScreenX = useMotionValue(50);
+  const meScreenY = useMotionValue(50);
+  const friendScreenX = useMotionValue(50);
+  const friendScreenY = useMotionValue(50);
+
+  // Game viewport's own measured pixel size (it's a flex-1 box, so its
+  // actual size depends on layout/available space) -- needed to convert
+  // world coordinates to screen percent and to clamp the camera so the
+  // background never scrolls past its own edges.
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 360, height: 480 });
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const update = () => setViewportSize({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Background layer's screen-space translate (px, within the viewport) --
+  // positions the (much larger than the viewport) world image so the
+  // camera's current world point sits at the viewport's center.
+  const bgTranslateX = useMotionValue(0);
+  const bgTranslateY = useMotionValue(0);
+
   const scaleOne = useMotionValue(1);
 
   type Facing = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright";
@@ -52,19 +104,278 @@ export function FindScene() {
   const [meState, setMeState] = useState<{ moving: boolean; facing: Facing }>({ moving: false, facing: "up" });
   const [friendState, setFriendState] = useState<{ moving: boolean; facing: Facing }>({ moving: false, facing: "down" });
   
+  const [locationEnabled, setLocationEnabled] = useState(false);
   const [distance, setDistance] = useState(0);
   const [bearing, setBearing] = useState(0);
+  // Whether the two sprites are currently close enough on screen to
+  // visually overlap -- Me renders above the friend while true, DOM order
+  // decides as before otherwise. World-unit threshold, not meters: it's
+  // sized to the sprites' own on-screen width (cellWidth 78 * SpriteCharacter's
+  // DISPLAY_SCALE 1.4 = ~109 screen px, /WORLD_SCALE = ~78 world units for
+  // edge-to-edge; a bit less than that so it kicks in once they actually
+  // start overlapping, not just as soon as they touch).
+  const SPRITE_OVERLAP_WORLD_UNITS = 55;
+  const [spritesOverlapping, setSpritesOverlapping] = useState(false);
+
+  // ── Encounter animation state machine ────────────────────────────────
+  // Phases: "none" → "facing" (face each other, 2s) → "settling" (slide
+  // down + turn toward camera, 1.5s) → "victory" (show banner, wait for
+  // dismiss). Movement is blocked during all non-"none" phases.
+  type EncounterPhase = "none" | "facing" | "settling" | "victory";
+  const [encounterPhase, setEncounterPhase] = useState<EncounterPhase>("none");
+  const encounterPhaseRef = useRef<EncounterPhase>("none");
+  const ENCOUNTER_SLIDE_WORLD_UNITS = 15; // how far down they slide during "settling"
+  // Horizontal gap kept between the two sprites for the whole encounter --
+  // the trigger fires at <= 5m apart, which at this world scale puts their
+  // sprite art overlapping, so they're held apart around the trigger
+  // midpoint instead of at their literal (too-close) snapshot spots.
+  const ENCOUNTER_FACE_GAP_WORLD_UNITS = 100;
+  // Snapshot of both world positions when the encounter fires, so the
+  // settling slide starts from exactly where they stood when it triggered.
+  const encounterSnapshot = useRef<{
+    meX: number; meY: number; friendX: number; friendY: number;
+    midX: number; midY: number; meFacesRight: boolean;
+  } | null>(null);
+  // Cooldown flag: don't re-trigger immediately after dismissing.
+  const encounterCooldownRef = useRef(false);
+  // Victory message fade-in
+  const [victoryVisible, setVictoryVisible] = useState(false);
+
+  // GSAP-driven tween target -- a single plain object (not the Framer
+  // motion values directly, gsap tweens plain numeric props) whose
+  // onUpdate re-syncs meWorldX/Y, friendWorldX/Y, and the camera focus
+  // every tick, so every position change during an encounter (spreading
+  // apart to face each other, sliding down to settle) glides on an eased
+  // curve instead of snapping instantly on each phase change.
+  const encounterTween = useRef({ meX: 0, meY: 0, friendX: 0, friendY: 0, camX: 0, camY: 0 });
+  // Where the camera is actually centered, each frame -- normally just
+  // mirrors Me's position, but during an encounter this is what pans to
+  // the pair's midpoint instead, and is what the *next* encounter's tween
+  // starts from (so re-triggering mid-pan doesn't jump).
+  const cameraFocus = useRef({ x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 });
+
+  const startEncounter = useCallback(() => {
+    if (encounterPhaseRef.current !== "none" || encounterCooldownRef.current) return;
+    // Snapshot positions -- meFacesRight is which way each sprite needs to
+    // turn to actually face the other, based on who's standing where when
+    // the encounter fires (not assumed -- the friend could approach from
+    // either side).
+    const meFacesRight = friendWorldX.get() >= meWorldX.get();
+    const snap = {
+      meX: meWorldX.get(), meY: meWorldY.get(),
+      friendX: friendWorldX.get(), friendY: friendWorldY.get(),
+      midX: (meWorldX.get() + friendWorldX.get()) / 2,
+      midY: (meWorldY.get() + friendWorldY.get()) / 2,
+      meFacesRight,
+    };
+    encounterSnapshot.current = snap;
+    setVictoryVisible(false);
+    encounterPhaseRef.current = "facing";
+    setEncounterPhase("facing");
+    // Stop both sprites' movement immediately, turned toward each other.
+    setMeState({ moving: false, facing: meFacesRight ? "right" : "left" });
+    setFriendState({ moving: false, facing: meFacesRight ? "left" : "right" });
+
+    const halfGap = ENCOUNTER_FACE_GAP_WORLD_UNITS / 2;
+    const meFacingX = snap.midX + (meFacesRight ? -halfGap : halfGap);
+    const friendFacingX = snap.midX + (meFacesRight ? halfGap : -halfGap);
+
+    // Glide both sprites apart into their facing spots and pan the camera
+    // to the encounter's midpoint together, in one eased tween -- starting
+    // from wherever they/the camera actually are right now.
+    gsap.killTweensOf(encounterTween.current);
+    encounterTween.current = {
+      meX: snap.meX, meY: snap.meY,
+      friendX: snap.friendX, friendY: snap.friendY,
+      camX: cameraFocus.current.x, camY: cameraFocus.current.y,
+    };
+    gsap.to(encounterTween.current, {
+      meX: meFacingX, meY: snap.meY,
+      friendX: friendFacingX, friendY: snap.friendY,
+      camX: snap.midX, camY: snap.midY,
+      duration: 1.1,
+      ease: "sine.inOut",
+      onUpdate: () => {
+        const v = encounterTween.current;
+        meWorldX.set(v.meX);
+        meWorldY.set(v.meY);
+        friendWorldX.set(v.friendX);
+        friendWorldY.set(v.friendY);
+        cameraFocus.current.x = v.camX;
+        cameraFocus.current.y = v.camY;
+      },
+    });
+
+    // After 2s → settling
+    setTimeout(() => {
+      encounterPhaseRef.current = "settling";
+      setEncounterPhase("settling");
+      setMeState({ moving: false, facing: "down" });
+      setFriendState({ moving: false, facing: "down" });
+
+      // Slide down together, eased -- replaces the earlier phase's target
+      // position with the settled one, still gliding rather than jumping.
+      gsap.to(encounterTween.current, {
+        meY: snap.meY + ENCOUNTER_SLIDE_WORLD_UNITS,
+        friendY: snap.friendY + ENCOUNTER_SLIDE_WORLD_UNITS,
+        camY: snap.midY + ENCOUNTER_SLIDE_WORLD_UNITS,
+        duration: 1.4,
+        ease: "power2.inOut",
+        onUpdate: () => {
+          const v = encounterTween.current;
+          meWorldY.set(v.meY);
+          friendWorldY.set(v.friendY);
+          cameraFocus.current.y = v.camY;
+        },
+      });
+
+      // After 1.5s → victory
+      setTimeout(() => {
+        encounterPhaseRef.current = "victory";
+        setEncounterPhase("victory");
+        // Small delay for the banner fade-in
+        setTimeout(() => setVictoryVisible(true), 100);
+      }, 1500);
+    }, 2000);
+  }, [meWorldX, meWorldY, friendWorldX, friendWorldY]);
+
+  const dismissEncounter = useCallback(() => {
+    gsap.killTweensOf(encounterTween.current);
+    encounterPhaseRef.current = "none";
+    setEncounterPhase("none");
+    setVictoryVisible(false);
+    encounterSnapshot.current = null;
+    // Brief cooldown so walking away from 5m doesn't immediately re-trigger.
+    encounterCooldownRef.current = true;
+    setTimeout(() => { encounterCooldownRef.current = false; }, 3000);
+  }, []);
+
+  // Kill any in-flight encounter tween on unmount so its onUpdate doesn't
+  // fire against motion values belonging to an already-torn-down scene.
+  useEffect(() => {
+    return () => { gsap.killTweensOf(encounterTween.current); };
+  }, []);
 
   // Character selection
   const { characterId } = useCharacter();
   const myCharacterBundle = CHARACTER_SPRITE_BUNDLES[characterId || DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Friend selection
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [friendPickerOpen, setFriendPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [activeInfoPanel, setActiveInfoPanel] = useState<null | "terms" | "privacy" | "notifications" | "about">(null);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [resetSending, setResetSending] = useState(false);
+
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    setChangingPassword(false);
+    setActiveInfoPanel(null);
+    setOldPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordError(null);
+    setPasswordSuccess(null);
+  };
+
+  const INFO_PANELS: Record<"terms" | "privacy" | "notifications" | "about", { title: string; body: string[] }> = {
+    terms: {
+      title: "TERMS AND CONDITIONS",
+      body: [
+        "By using YaarRadar, you agree to share your live location only with friends you've explicitly confirmed -- never publicly or with strangers.",
+        "You're responsible for keeping your account credentials safe. Don't share your password with anyone.",
+        "YaarRadar is provided as-is, without warranty of any kind. Location accuracy depends on your device's GPS and network conditions.",
+      ],
+    },
+    privacy: {
+      title: "PRIVACY POLICY",
+      body: [
+        "Your location is only visible to friends you've mutually confirmed -- never to the public or to friends you haven't accepted.",
+        "We store your latest location only (no history) and overwrite it on every update.",
+        "Unfriending someone immediately removes their access to your location, in both directions.",
+      ],
+    },
+    notifications: {
+      title: "NOTIFICATIONS",
+      body: [
+        "Notification preferences aren't configurable yet -- this is a placeholder for future settings like friend request alerts and proximity pings.",
+        "Check back in a future update.",
+      ],
+    },
+    about: {
+      title: "ABOUT",
+      body: [
+        "YaarRadar shows you and a friend's straight-line distance and direction to each other in real time, as two characters walking toward one another.",
+        "Not turn-by-turn navigation -- just \"they're 40m that way.\"",
+      ],
+    },
+  };
+
+  const submitPasswordChange = async () => {
+    if (!user?.email) return;
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    if (newPassword.length < 6) {
+      setPasswordError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation don't match.");
+      return;
+    }
+    setPasswordSubmitting(true);
+    try {
+      // Supabase's updateUser doesn't check the current password itself, so
+      // re-authenticate with it first to confirm it's actually correct.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: oldPassword,
+      });
+      if (signInError) {
+        setPasswordError("Old password is incorrect.");
+        return;
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) {
+        setPasswordError(updateError.message);
+        return;
+      }
+      setPasswordSuccess("Password updated.");
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      setPasswordError("Something went wrong. Try again.");
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
+
+  const sendPasswordReset = async () => {
+    if (!user?.email) return;
+    setResetSending(true);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+      if (error) throw error;
+      setPasswordSuccess(`Reset link sent to ${user.email}.`);
+    } catch {
+      setPasswordError("Could not send reset email. Try again.");
+    } finally {
+      setResetSending(false);
+    }
+  };
 
   useEffect(() => {
     if (!accessToken) return;
@@ -146,48 +457,105 @@ export function FindScene() {
   }, []);
 
   useAnimationFrame((t, delta) => {
+    const phase = encounterPhaseRef.current;
     const speed = 0.05 * delta;
     const keys = keysRef.current;
-    
-    // Move Me
-    let mx = 0; let my = 0;
-    if (keys["ArrowUp"]) my -= speed;
-    if (keys["ArrowDown"]) my += speed;
-    if (keys["ArrowLeft"]) mx -= speed;
-    if (keys["ArrowRight"]) mx += speed;
-    if (mx !== 0 || my !== 0) {
-      meWorldX.set(meWorldX.get() + mx);
-      meWorldY.set(meWorldY.get() + my);
-    }
-    
-    // Move Friend
-    let fx = 0; let fy = 0;
-    if (keys["w"] || keys["W"]) fy -= speed;
-    if (keys["s"] || keys["S"]) fy += speed;
-    if (keys["a"] || keys["A"]) fx -= speed;
-    if (keys["d"] || keys["D"]) fx += speed;
-    if (fx !== 0 || fy !== 0) {
-      friendWorldX.set(friendWorldX.get() + fx);
-      friendWorldY.set(friendWorldY.get() + fy);
+
+    // ── During encounter: positions are owned by the GSAP tween in
+    // startEncounter (see encounterTween's onUpdate) -- just skip normal
+    // player input, don't fight it by setting positions here too.
+    if (phase === "none") {
+      // ── Normal movement ──────────────────────────────────────────────
+      // Move Me (arrow keys), clamped to the world's own bounds -- the
+      // player can walk right up to the edge of the background image, but
+      // never past it.
+      let mx = 0; let my = 0;
+      if (keys["ArrowUp"]) my -= speed;
+      if (keys["ArrowDown"]) my += speed;
+      if (keys["ArrowLeft"]) mx -= speed;
+      if (keys["ArrowRight"]) mx += speed;
+      if (mx !== 0 || my !== 0) {
+        meWorldX.set(clamp(meWorldX.get() + mx, 0, WORLD_WIDTH));
+        meWorldY.set(clamp(meWorldY.get() + my, 0, WORLD_HEIGHT));
+      }
+
+      // Move Friend (WASD test control) -- same world-bounds clamp.
+      let fx = 0; let fy = 0;
+      if (keys["w"] || keys["W"]) fy -= speed;
+      if (keys["s"] || keys["S"]) fy += speed;
+      if (keys["a"] || keys["A"]) fx -= speed;
+      if (keys["d"] || keys["D"]) fx += speed;
+      if (fx !== 0 || fy !== 0) {
+        friendWorldX.set(clamp(friendWorldX.get() + fx, 0, WORLD_WIDTH));
+        friendWorldY.set(clamp(friendWorldY.get() + fy, 0, WORLD_HEIGHT));
+      }
     }
 
-    // Camera follows Me (background scrolls inverse to me)
-    bgOffsetX.set(-meWorldX.get());
-    bgOffsetY.set(-meWorldY.get());
+    // Camera: normally follows Me; during an encounter it instead follows
+    // cameraFocus, which the GSAP tween above pans to the pair's midpoint
+    // (see startEncounter) -- either way it's clamped so the viewport
+    // never shows past the background image's own edges (the world is
+    // larger than the viewport, but not infinite).
+    const halfViewWorldW = viewportSize.width / (2 * WORLD_SCALE);
+    const halfViewWorldH = viewportSize.height / (2 * WORLD_SCALE);
+    const camX = WORLD_WIDTH <= halfViewWorldW * 2
+      ? WORLD_WIDTH / 2
+      : clamp(cameraFocus.current.x, halfViewWorldW, WORLD_WIDTH - halfViewWorldW);
+    const camY = WORLD_HEIGHT <= halfViewWorldH * 2
+      ? WORLD_HEIGHT / 2
+      : clamp(cameraFocus.current.y, halfViewWorldH, WORLD_HEIGHT - halfViewWorldH);
+    // Keep cameraFocus synced to the camera's actual (post-clamp) position
+    // while idle, so if an encounter starts, its pan tween begins from
+    // exactly where the camera visually is right now -- not raw Me
+    // coordinates, which can diverge from it near a world edge.
+    if (phase === "none") {
+      cameraFocus.current.x = camX;
+      cameraFocus.current.y = camY;
+    }
 
-    // Friend Screen Position relative to Me
+    // world -> camera -> screen: position the (oversized) background layer
+    // so the camera's current world point lands at the viewport's center.
+    bgTranslateX.set(viewportSize.width / 2 - camX * WORLD_SCALE);
+    bgTranslateY.set(viewportSize.height / 2 - camY * WORLD_SCALE);
+
+    // Both sprites use the exact same world->camera->screen conversion,
+    // expressed as percent-of-viewport (SpriteCharacter/ConnectionLine's
+    // existing coordinate space) -- Me isn't hardcoded to the center
+    // anymore, it just lands there naturally whenever the camera isn't
+    // clamped away from it.
+    const toScreenPercent = (worldX: number, worldY: number) => ({
+      x: viewportSize.width > 0 ? ((viewportSize.width / 2 + (worldX - camX) * WORLD_SCALE) / viewportSize.width) * 100 : 50,
+      y: viewportSize.height > 0 ? ((viewportSize.height / 2 + (worldY - camY) * WORLD_SCALE) / viewportSize.height) * 100 : 50,
+    });
+
+    const mePos = toScreenPercent(meWorldX.get(), meWorldY.get());
+    meScreenX.set(mePos.x);
+    meScreenY.set(mePos.y);
+
+    const friendPos = toScreenPercent(friendWorldX.get(), friendWorldY.get());
+    friendScreenX.set(friendPos.x);
+    friendScreenY.set(friendPos.y);
+
+    // Distance/bearing come from WORLD positions only -- never from the
+    // screen percents above, which shift every time the camera pans.
     const dx = friendWorldX.get() - meWorldX.get();
     const dy = friendWorldY.get() - meWorldY.get();
-    
-    friendScreenX.set(TEST_ANCHOR_X_PERCENT + dx);
-    friendScreenY.set(TEST_ANCHOR_Y_PERCENT + dy);
-    
-    // Update live HUD state metrics
-    const dist = Math.sqrt(dx * dx + dy * dy) * 8; // arbitrary scale for "meters"
+
+    const worldDist = Math.sqrt(dx * dx + dy * dy);
+    const dist = worldDist * METERS_PER_WORLD_UNIT;
     const brg = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
-    
+
     setDistance((prev) => Math.round(dist) !== Math.round(prev) ? dist : prev);
     setBearing((prev) => Math.round(brg) !== Math.round(prev) ? brg : prev);
+    setSpritesOverlapping((prev) => {
+      const next = worldDist < SPRITE_OVERLAP_WORLD_UNITS;
+      return prev !== next ? next : prev;
+    });
+
+    // ── Encounter trigger: ≤ 5 meters apart ────────────────────────────
+    if (phase === "none" && dist <= 5) {
+      startEncounter();
+    }
   });
 
   function getSpritesForFacing(bundle: CharacterSpriteBundle, facing: Facing): DirectionalSpriteSet {
@@ -202,110 +570,558 @@ export function FindScene() {
     return sprites;
   }
 
-  const meSprites = getSpritesForFacing(myCharacterBundle, meState.facing);
-  const friendSprites = getSpritesForFacing(friendCharacterBundle, friendState.facing);
+  // During encounter phases, override sprite selection:
+  //  "facing"   → turned toward each other, whichever side each one is
+  //               actually standing on (see encounterSnapshot.meFacesRight)
+  //  "settling"/"victory" → both face toward camera (down)
+  const meFacesRight = encounterSnapshot.current?.meFacesRight ?? true;
+  const meSprites = encounterPhase === "facing"
+    ? (meFacesRight ? myCharacterBundle.faceRight : myCharacterBundle.faceLeft)
+    : (encounterPhase === "settling" || encounterPhase === "victory")
+      ? myCharacterBundle.towardCamera
+      : getSpritesForFacing(myCharacterBundle, meState.facing);
+
+  const friendSprites = encounterPhase === "facing"
+    ? (meFacesRight ? friendCharacterBundle.faceLeft : friendCharacterBundle.faceRight)
+    : (encounterPhase === "settling" || encounterPhase === "victory")
+      ? friendCharacterBundle.towardCamera
+      : getSpritesForFacing(friendCharacterBundle, friendState.facing);
+
+  const encounterActive = encounterPhase !== "none";
 
   return (
-    <div className="relative flex min-h-dvh w-full flex-col overflow-hidden">
-      <ScrollingBackground tile={GROUND_TILE} isMoving={false} offsetX={bgOffsetX} offsetY={bgOffsetY} />
+    <div ref={viewportRef} className="relative flex min-h-dvh w-full flex-col overflow-hidden">
+      {/* World layer -- fills the *entire* screen (not just a boxed-off
+          middle section), sitting behind every UI element (HUD, WELCOME,
+          SELECT FRIEND, TabBar, ...), which all render on top of it at a
+          higher z-index further down. The background image itself is
+          never stretched (backgroundSize matches its own native aspect
+          ratio, scaled up by WORLD_SCALE only), translated in screen space
+          so the camera's current world point stays centered on screen. */}
+      <motion.div
+        className="absolute left-0 top-0 z-0"
+        style={{
+          width: WORLD_WIDTH * WORLD_SCALE,
+          height: WORLD_HEIGHT * WORLD_SCALE,
+          backgroundImage: "url(/pixelated-icons/background.png)",
+          backgroundSize: "100% 100%",
+          backgroundRepeat: "no-repeat",
+          imageRendering: "pixelated",
+          x: bgTranslateX,
+          y: bgTranslateY,
+        }}
+        aria-hidden
+      />
 
-      <div className="relative z-10 flex flex-1 w-full flex-col" style={{ paddingBottom: 68 }}>
+      {/* Sprite layer -- also full-screen, above the world background but
+          below the UI, so the characters walk on the grass that's visibly
+          behind/around the HUD rather than being clipped to a smaller box. */}
+      <div className="absolute inset-0 z-[5] pointer-events-none">
+        <ConnectionLine
+          x1={meScreenX} y1={meScreenY}
+          x2={friendScreenX} y2={friendScreenY}
+        />
 
-        {/* HUD */}
-        <div className="flex items-start justify-between gap-2 px-3 pt-3">
-          <div className="px-panel" style={{ padding: "10px 14px" }}>
-            <div style={{ fontFamily: "var(--font-pixel, 'Courier New', monospace)", fontSize: 10, lineHeight: 2, color: "var(--px-text)" }}>
-              <span className="px-cursor" style={{ color: "var(--px-orange)", fontSize: 12 }}>
-                {Math.round(distance)}M
-              </span>
-              <br />
-              <span style={{ color: "var(--px-blue)" }}>
-                {Math.round(bearing)}&deg; BRG
-              </span>
-            </div>
-          </div>
-        </div>
+        <SpriteCharacter
+          sprites={meSprites}
+          scale={scaleOne}
+          lookSway={0}
+          isMoving={encounterActive ? false : meState.moving}
+          xPercent={meScreenX} yPercent={meScreenY}
+          label="Me (Arrows)"
+          zIndex={spritesOverlapping ? 2 : undefined}
+        />
 
-        <div className="flex flex-1 overflow-hidden">
-          <ConnectionLine
-            x1={meScreenX} y1={meScreenY}
-            x2={friendScreenX} y2={friendScreenY}
-          />
-          
-          <SpriteCharacter
-            sprites={meSprites}
-            scale={scaleOne}
-            lookSway={0}
-            isMoving={meState.moving}
-            xPercent={meScreenX} yPercent={meScreenY}
-            label="Me (Arrows)"
-          />
-
+        {/* Wait out the friends fetch before rendering the friend sprite --
+            otherwise it flashes the default character bundle first, then
+            swaps to the real selected friend's sprite once the request
+            resolves. No accessToken (dev/testing, no real friend data
+            incoming) still renders immediately, same as before. */}
+        {(!accessToken || !friendsLoading) && (
           <SpriteCharacter
             sprites={friendSprites}
             scale={scaleOne}
             lookSway={0}
-            isMoving={friendState.moving}
+            isMoving={encounterActive ? false : friendState.moving}
             xPercent={friendScreenX} yPercent={friendScreenY}
             label={selectedFriend?.username ?? "Friend (WASD)"}
           />
+        )}
+
+        {/* ── Victory banner — floats above both sprites during the
+            encounter's "victory" phase ──────────────────────────────── */}
+        {encounterPhase === "victory" && (
+          <motion.div
+            className="absolute z-30 flex flex-col items-center pointer-events-auto"
+            style={{
+              left: `${(meScreenX.get() + friendScreenX.get()) / 2}%`,
+              top: `${Math.min(meScreenY.get(), friendScreenY.get()) - 20}%`,
+              transform: "translateX(-50%)",
+            }}
+          >
+            <div
+              className="flex flex-col items-center gap-2 px-6 py-3 relative"
+              style={{
+                opacity: victoryVisible ? 1 : 0,
+                transform: victoryVisible ? "translateY(0) scale(1)" : "translateY(20px) scale(0.8)",
+                transition: "opacity 0.5s ease-out, transform 0.5s ease-out",
+              }}
+            >
+              {/* Sparkle particles */}
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex gap-3">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="w-2 h-2"
+                    style={{
+                      backgroundColor: i % 2 === 0 ? "#FFD700" : "#FFA500",
+                      imageRendering: "pixelated",
+                      animation: `encounterSparkle 1s ease-in-out ${i * 0.15}s infinite alternate`,
+                    }}
+                  />
+                ))}
+              </div>
+              {/* Banner box */}
+              <div className="relative px-5 py-2.5">
+                <NotchedFrame colors={["#5C4528", "#F3E8DB", "#8EA971"]} step={4} ringWidth={3.5} />
+                <span
+                  className="relative z-10 font-bold tracking-widest whitespace-nowrap"
+                  style={{
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 14,
+                    color: "#2C421C",
+                    textShadow: "1px 1px 0 rgba(255,255,255,0.6)",
+                  }}
+                >
+                  ✦ FOUND EACH OTHER! ✦
+                </span>
+              </div>
+              {/* Dismiss button */}
+              <button
+                type="button"
+                onClick={dismissEncounter}
+                className="relative px-4 py-1.5 mt-1"
+                style={{ border: "none" }}
+              >
+                <NotchedFrame colors={["#8C6551", "#F3E8DB", "#fdf1e5"]} step={3} ringWidth={3} />
+                <span
+                  className="relative z-10 font-bold tracking-wide"
+                  style={{
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 9,
+                    color: "#5a4632",
+                  }}
+                >
+                  CONTINUE
+                </span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </div>
+
+      <div className="relative z-10 flex flex-1 w-full flex-col" style={{ paddingBottom: 68 }}>
+
+        {/* ── Distance readout + heading + settings — distance box and
+            welcome box top-align; settings icon vertically centered between
+            the two; location toggle below the distance box. ─────────────── */}
+        <div className="flex items-start gap-1.5 px-3 pt-3">
+          {/* Left column: distance box + location toggle stacked */}
+          <div className="flex flex-col gap-1.5 shrink-0">
+            {/* Distance/bearing box -- provided pixel-art box asset */}
+            <div
+              className="flex flex-col items-center justify-center shrink-0"
+              style={{
+                width: 92,
+                height: 92,
+                backgroundImage: "url(/pixelated-icons/buttons/distance-box.png)",
+                backgroundSize: "100% 100%",
+                backgroundRepeat: "no-repeat",
+                imageRendering: "pixelated",
+              }}
+            >
+              <span style={{ fontFamily: "var(--font-pixel)", fontSize: 14, fontWeight: 700, color: "#5a4632" }}>
+                {Math.round(distance)}M
+              </span>
+              <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#5a4632", marginTop: 3, textAlign: "center" }}>
+                {Math.round(bearing)}&deg;<br />BRG
+              </span>
+            </div>
+
+            {/* Location toggle box -- provided pixel-art box asset */}
+            <div
+              className="relative flex items-center justify-center gap-2"
+              style={{
+                width: 104,
+                height: 46,
+                padding: "0 8px",
+                backgroundImage: "url('/pixelated-icons/buttons/location-toggle-box.png')",
+                backgroundSize: "100% 100%",
+                backgroundRepeat: "no-repeat",
+                imageRendering: "pixelated",
+              }}
+            >
+              <span
+                className="relative z-10"
+                style={{
+                  fontFamily: "var(--font-pixel)",
+                  fontSize: 8,
+                  color: "#3f4a24",
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Turn on<br />location
+              </span>
+              {/* Toggle switch */}
+              <button
+                type="button"
+                aria-label="Toggle location"
+                onClick={() => setLocationEnabled((v) => !v)}
+                className="relative z-10 shrink-0"
+                style={{
+                  width: 26,
+                  height: 14,
+                  borderRadius: 7,
+                  backgroundColor: locationEnabled ? "#8EA971" : "#b7b78f",
+                  border: "1.5px solid #5d6b34",
+                  padding: 0,
+                  cursor: "pointer",
+                  transition: "background-color 0.2s",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <div
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    backgroundColor: "#fdf1e5",
+                    border: "1px solid #5d6b34",
+                    transition: "transform 0.2s",
+                    transform: locationEnabled ? "translateX(12px)" : "translateX(2px)",
+                  }}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Welcome box — vertically centered relative to the full left column height */}
+          <div className="flex-1 min-w-0 flex items-center" style={{ height: 92, marginLeft: -8 }}>
+            <div className="relative flex flex-col items-center justify-center w-full gap-0.5" style={{ height: 56 }}>
+              <NotchedFrame colors={["#8C6551", "#F3E8DB", "#bfc08e"]} step={5} ringWidth={3.5} />
+              <img src="/pixelated-icons/vines.jpg" alt="" className="relative z-10 w-3/4 h-2 object-cover opacity-80" style={{ mixBlendMode: "multiply", imageRendering: "pixelated" }} />
+              <h1 className="relative z-10 font-bold tracking-wide whitespace-nowrap" style={{ color: "#5a4632", fontFamily: "var(--font-pixel)", fontSize: "clamp(9px, 3vw, 13px)" }}>
+                WELCOME
+              </h1>
+              <img src="/pixelated-icons/vines.jpg" alt="" className="relative z-10 w-3/4 h-2 object-cover opacity-80 scale-y-[-1]" style={{ mixBlendMode: "multiply", imageRendering: "pixelated" }} />
+            </div>
+          </div>
+
+          {/* Settings — vertically centered between the distance box and
+              welcome box's combined vertical span */}
+          <button
+            type="button"
+            aria-label="Settings"
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center justify-center shrink-0"
+            style={{
+              width: 44,
+              height: 44,
+              border: "none",
+              marginTop: 24,
+            }}
+          >
+            <img
+              src="/pixelated-icons/buttons/settings-icon.png"
+              alt=""
+              className="w-full h-full"
+              style={{ imageRendering: "pixelated" }}
+            />
+          </button>
         </div>
 
-        {/* ── SELECT FRIEND ─────────────────────────────────── */}
+        {/* World shows through here -- this row is deliberately empty and
+            transparent; the actual background/sprites are the full-screen
+            layers above (z-0/z-[5]), behind this whole UI column. */}
+        <div className="flex-1" />
+
         <div className="relative z-40 flex justify-center px-3 pb-3">
           <button
             type="button"
             onClick={() => setFriendPickerOpen(true)}
-            className="px-btn px-btn-ghost"
-            style={{ padding: "10px 16px", fontSize: 10 }}
+            className="relative flex items-center justify-center gap-2 shrink-0"
+            style={{ height: 44, minWidth: 170, padding: "0 16px", border: "none" }}
           >
-            <span className="px-icon px-icon-friends" aria-hidden></span>
-            {friendsLoading ? "LOADING..." : selectedFriend ? `SELECT FRIEND: ${selectedFriend.username}` : "NO FRIENDS YET"}
+            <NotchedFrame colors={["#8C6551", "#F3E8DB", "#fdf1e5"]} step={5} ringWidth={3.5} />
+            <span className="relative z-10 px-icon px-icon-friends" style={{ color: "#6B4731" }} aria-hidden></span>
+            <span className="relative z-10" style={{ fontFamily: "var(--font-pixel)", fontSize: 10, color: "#6B4731" }}>
+              {friendsLoading ? "LOADING..." : selectedFriend ? `SELECT FRIEND: ${selectedFriend.username}` : "NO FRIENDS YET"}
+            </span>
           </button>
         </div>
       </div>
 
       <TabBar />
 
-      <PixelModal open={friendPickerOpen} onClose={() => setFriendPickerOpen(false)} title="SELECT FRIEND">
-        {friendsLoading ? (
-          <div className="py-8 text-center text-[10px] text-[var(--px-text-dim)]">LOADING RADAR...</div>
-        ) : friends.length === 0 ? (
-          <div className="py-8 text-center text-[10px] text-[var(--px-text-dim)]">NO FRIENDS FOUND</div>
-        ) : (
-          <div className="flex flex-col gap-2 p-2">
-            {friends.map((f) => {
-              const isSelected = selectedFriend?.id === f.id;
-              const bundle = CHARACTER_SPRITE_BUNDLES[f.character_id ?? DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
-              return (
+      {friendPickerOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+          onClick={() => setFriendPickerOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm relative overflow-hidden"
+            style={{
+              backgroundColor: "#EADBC8",
+              borderStyle: "solid",
+              borderWidth: 14,
+              borderImageSource: "url(/pixelated-icons/buttons/popup-frame.png)",
+              borderImageSlice: 55,
+              borderImageRepeat: "stretch",
+              imageRendering: "pixelated",
+              borderRadius: 22,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-3 py-2 border-b-4 border-[#6B4731]"
+              style={{ backgroundColor: "#6B4731" }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 text-[#C2D6AD] text-lg leading-none select-none">✦</div>
+                <h2 className="text-sm font-bold text-white tracking-widest">SELECT FRIEND</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFriendPickerOpen(false)}
+                className="w-7 h-7 flex items-center justify-center border-[3px] border-[#6B4731] bg-[#EADBC8] rounded-md text-[#6B4731] font-bold select-none active:scale-95"
+                style={{ fontFamily: "var(--font-pixel)" }}
+              >
+                X
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
+              {friendsLoading ? (
+                <div className="py-8 text-center text-[10px] text-[var(--px-text-dim)]">LOADING RADAR...</div>
+              ) : friends.length === 0 ? (
+                <div className="py-8 text-center text-[10px] text-[var(--px-text-dim)]">NO FRIENDS FOUND</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {friends.map((f) => {
+                    const isSelected = selectedFriend?.id === f.id;
+                    const bundle = CHARACTER_SPRITE_BUNDLES[f.character_id ?? DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => { setSelectedFriend(f); setFriendPickerOpen(false); }}
+                        className="relative flex flex-col items-center gap-1.5 p-2 overflow-hidden"
+                        style={{
+                          backgroundColor: isSelected ? "#D5E4BB" : "transparent",
+                          border: "none",
+                          borderRadius: 10,
+                        }}
+                      >
+                        <NotchedFrame colors={["#365224", "#8FA873", "#E1EDCB"]} step={4} ringWidth={2.5} />
+                        <div
+                          className="relative z-10 w-16 h-16 p-1 flex items-center justify-center mt-1"
+                          style={{
+                            backgroundColor: "var(--px-white)",
+                            border: "2px solid #365224",
+                            borderRadius: 6,
+                          }}
+                        >
+                          <div
+                            className="w-full h-full"
+                            style={{
+                              backgroundImage: `url('${bundle.towardCamera.straight.idleSrc}')`,
+                              backgroundPosition: avatarBackgroundPosition(bundle.towardCamera.straight.idleSrc),
+                              backgroundSize: "cover",
+                              backgroundRepeat: "no-repeat",
+                              imageRendering: "pixelated",
+                            }}
+                          />
+                        </div>
+                        <span className="relative z-10 text-[9px] font-bold uppercase" style={{ color: "#2C421C" }}>
+                          {f.username}
+                        </span>
+                        {isSelected && <span className="relative z-10 text-[8px] font-bold" style={{ color: "#365224" }}>SELECTED</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Settings side drawer — slides in from the right, covering
+          ~65% of the screen width (roughly "one and a half quarters"). ── */}
+      {settingsOpen && (
+        <div className="absolute inset-0 z-50 flex justify-end" onClick={closeSettings}>
+          <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.55)" }} />
+          <div
+            className="relative h-full flex flex-col gap-3 p-4 overflow-y-auto"
+            style={{ width: "65%", maxWidth: 340, backgroundColor: "#fdf1e5", borderLeft: "4px solid #8C6551" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                {(changingPassword || activeInfoPanel) && (
+                  <button
+                    type="button"
+                    onClick={() => { setChangingPassword(false); setActiveInfoPanel(null); setPasswordError(null); setPasswordSuccess(null); }}
+                    aria-label="Back"
+                    style={{ color: "#5a4632", fontFamily: "var(--font-pixel)", fontSize: 16, fontWeight: 700, border: "none", background: "none" }}
+                  >
+                    &lsaquo;
+                  </button>
+                )}
+                <h2 style={{ fontFamily: "var(--font-pixel)", color: "#5a4632", fontSize: 16, fontWeight: 700 }}>
+                  {changingPassword ? "CHANGE PASSWORD" : activeInfoPanel ? INFO_PANELS[activeInfoPanel].title : "SETTINGS"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeSettings}
+                aria-label="Close settings"
+                className="flex items-center justify-center"
+                style={{
+                  width: 30,
+                  height: 30,
+                  border: "2px solid #8C6551",
+                  borderRadius: 6,
+                  backgroundColor: "#bfc08e",
+                  color: "#5a4632",
+                  fontFamily: "var(--font-pixel)",
+                  fontWeight: 700,
+                }}
+              >
+                X
+              </button>
+            </div>
+
+            {changingPassword ? (
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#6B4731" }}>OLD PASSWORD</span>
+                  <input
+                    type="password"
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                    className="login-input"
+                    style={{ fontFamily: "var(--font-pixel)", fontSize: 11, padding: "8px 10px" }}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#6B4731" }}>NEW PASSWORD</span>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="login-input"
+                    style={{ fontFamily: "var(--font-pixel)", fontSize: 11, padding: "8px 10px" }}
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#6B4731" }}>CONFIRM NEW PASSWORD</span>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="login-input"
+                    style={{ fontFamily: "var(--font-pixel)", fontSize: 11, padding: "8px 10px" }}
+                  />
+                </label>
+
                 <button
-                  key={f.id}
-                  onClick={() => { setSelectedFriend(f); setFriendPickerOpen(false); }}
-                  className="flex items-center gap-3 border-2 p-2 text-left transition-colors"
+                  type="button"
+                  onClick={sendPasswordReset}
+                  disabled={resetSending}
+                  className="text-left"
+                  style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#8C6551", border: "none", background: "none", textDecoration: "underline", opacity: resetSending ? 0.5 : 1 }}
+                >
+                  {resetSending ? "Sending..." : "Forgotten password?"}
+                </button>
+
+                {passwordError && (
+                  <p style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#a33" }}>{passwordError}</p>
+                )}
+                {passwordSuccess && (
+                  <p style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#365224" }}>{passwordSuccess}</p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={submitPasswordChange}
+                  disabled={passwordSubmitting}
                   style={{
-                    borderColor: isSelected ? "var(--px-green)" : "var(--px-border)",
-                    background: isSelected ? "var(--px-bg-card-active)" : "var(--px-bg-card)",
+                    marginTop: 4,
+                    padding: "10px 14px",
+                    backgroundColor: "#bfc08e",
+                    border: "3px solid #8C6551",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#5a4632",
+                    opacity: passwordSubmitting ? 0.6 : 1,
                   }}
                 >
-                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-black/20"
-                    style={{
-                      backgroundImage: `url('${bundle.towardCamera.straight.idleSrc}')`,
-                      backgroundPosition: avatarBackgroundPosition(bundle.towardCamera.straight.idleSrc),
-                      backgroundSize: "cover",
-                      backgroundRepeat: "no-repeat",
-                      imageRendering: "pixelated",
-                    }}
-                  />
-                  <div className="flex-1 font-pixel text-[10px] uppercase text-[var(--px-text)]">
-                    {f.username}
-                  </div>
-                  {isSelected && <div className="font-pixel text-[10px] text-[var(--px-green)]">SELECTED</div>}
+                  {passwordSubmitting ? "..." : "DONE"}
                 </button>
-              );
-            })}
+              </div>
+            ) : activeInfoPanel ? (
+              <div className="flex flex-col gap-3">
+                {INFO_PANELS[activeInfoPanel].body.map((paragraph, i) => (
+                  <p key={i} style={{ fontFamily: "var(--font-pixel)", fontSize: 10, lineHeight: 1.6, color: "#5a4632" }}>
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <>
+                {(
+                  [
+                    { label: "CHANGE PASSWORD", key: null },
+                    { label: "TERMS AND CONDITIONS", key: "terms" },
+                    { label: "PRIVACY POLICY", key: "privacy" },
+                    { label: "NOTIFICATIONS", key: "notifications" },
+                    { label: "ABOUT", key: "about" },
+                  ] as const
+                ).map(({ label, key }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => { if (label === "CHANGE PASSWORD") setChangingPassword(true); else if (key) setActiveInfoPanel(key); }}
+                    className="w-full flex items-center justify-between text-left"
+                    style={{
+                      padding: "12px 14px",
+                      backgroundColor: "#f3e8db",
+                      border: "2px solid #8C6551",
+                      borderRadius: 10,
+                      fontFamily: "var(--font-pixel)",
+                      fontSize: 11,
+                      color: "#5a4632",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {label}
+                    <span>&rsaquo;</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
-        )}
-      </PixelModal>
+        </div>
+      )}
     </div>
   );
 }

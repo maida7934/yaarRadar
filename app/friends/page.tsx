@@ -290,12 +290,15 @@ export default function FriendsPage() {
     <div className="flex flex-1 justify-center" style={{ backgroundColor: PAGE_OUTER_BG }}>
       <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[68px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
 
-        {/* Page background image */}
+        {/* Page background -- tiled striped pattern, repeated at a smaller
+            tile size than its native 736x920 so the stripes read as a
+            texture rather than one giant stretched image. */}
         <div
           className="absolute inset-0 z-0"
-          style={{ 
-            backgroundImage: "url(/yaarRadar-assets/bg.jpg)",
-            backgroundSize: "cover",
+          style={{
+            backgroundImage: "url(/pixelated-icons/friends-page.jpg)",
+            backgroundSize: "160px 200px",
+            backgroundRepeat: "repeat",
             backgroundPosition: "center",
           }}
           aria-hidden
@@ -324,7 +327,7 @@ export default function FriendsPage() {
               border: "3px solid #6b8453",
               boxShadow: "inset 0 0 0 2px #eaf5db",
               imageRendering: "pixelated",
-              minHeight: "110px",
+              minHeight: "138px",
               borderRadius: 16,
             }}
           >
@@ -333,21 +336,26 @@ export default function FriendsPage() {
               <span style={{ color: PINK_DARK, fontWeight: 700, fontSize: 14 }}>{friends.length} FRIENDS</span>
             </div>
 
-            <div className="flex gap-3">
-              <PixelButton
-                variant={tab === "friends" ? "primary" : "secondary"}
-                onClick={() => setTab("friends")}
-                className="flex-1 py-4 gap-2"
-                style={{ fontSize: 13 }}
-              >
-                <img src="/pixelated-icons/friends.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated" }} />
-                FRIENDS
-              </PixelButton>
-              <div className="relative flex-1">
+            {/* flex-1 so this row (and the buttons in it) grow to fill the
+                extra height added to the card above, rather than the
+                buttons being given a taller height of their own. */}
+            <div className="flex gap-3 flex-1 items-stretch">
+              <div className="relative flex-1 flex">
+                <PixelButton
+                  variant={tab === "friends" ? "primary" : "secondary"}
+                  onClick={() => setTab("friends")}
+                  className="w-full h-full gap-2"
+                  style={{ fontSize: 13 }}
+                >
+                  <img src="/pixelated-icons/friends.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated" }} />
+                  FRIENDS
+                </PixelButton>
+              </div>
+              <div className="relative flex-1 flex">
                 <PixelButton
                   variant={tab === "requests" ? "primary" : "secondary"}
                   onClick={() => setTab("requests")}
-                  className="w-full py-4 gap-2"
+                  className="w-full h-full gap-2"
                   style={{ fontSize: 13 }}
                 >
                   <img src="/pixelated-icons/mail.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated" }} />
@@ -410,8 +418,8 @@ export default function FriendsPage() {
                       <div
                         className="w-[84px] h-[84px] rounded-full flex items-center justify-center overflow-hidden mb-3 relative"
                         style={{
-                          backgroundColor: "#eadff2",
-                          border: "3px solid #c1add0",
+                          backgroundColor: "#efe0c8",
+                          border: "3px solid #8C6551",
                         }}
                       >
                          <div
@@ -426,19 +434,23 @@ export default function FriendsPage() {
                       </div>
                       
                       <div className="flex items-center gap-2 mb-3">
-                         <span className="text-[#c1add0] text-sm leading-none select-none">✦</span>
+                         <span className="text-[#8C6551] text-sm leading-none select-none">✦</span>
                          <span
                            className="text-lg font-bold text-center truncate max-w-[100px]"
                            style={{ color: "#59493c", fontFamily: "var(--font-pixel)" }}
                          >
                            {friend.username}
                          </span>
-                         <span className="text-[#c1add0] text-sm leading-none select-none">✦</span>
+                         <span className="text-[#8C6551] text-sm leading-none select-none">✦</span>
                       </div>
                       
-                      <div 
+                      <div
                         className="flex items-center justify-center gap-2 w-[110px] py-1.5 px-3 rounded-full relative overflow-hidden"
-                        style={{ backgroundColor: "#baa8d2", border: "2px solid #a994c6" }}
+                        style={
+                          (friend.is_online ?? true)
+                            ? { backgroundColor: "#749270", border: "2px solid #314a38" }
+                            : { backgroundColor: "#d48275", border: "2px solid #69312b" }
+                        }
                       >
                          {/* Sparkles inside pill */}
                          <div className="absolute left-1.5 top-1/2 -translate-y-1/2 text-white opacity-40 text-[9px] select-none">✦</div>

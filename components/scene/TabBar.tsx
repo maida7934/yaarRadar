@@ -8,10 +8,10 @@ export function TabBar() {
   const pathname = usePathname();
 
   const tabs = [
-    { icon: "px-icon-home",    label: "HOME",    id: "home",    href: "/" },
-    { icon: "px-icon-me",      label: "ME",      id: "me",      href: "/me" },
-    { icon: "px-icon-friends", label: "FRIENDS", id: "friends", href: "/friends" },
-    { icon: "px-icon-search",  label: "SEARCH",  id: "search",  href: "/search" },
+    { icon: "px-icon-home",    image: "/pixelated-icons/buttons/nav-home.png",    label: "HOME",    id: "home",    href: "/",        size: 24, labelOffset: 0,   iconOffset: 0 },
+    { icon: "px-icon-me",      image: "/pixelated-icons/buttons/nav-me.png",      label: "ME",      id: "me",      href: "/me",      size: 30, labelOffset: 0,   iconOffset: 0 },
+    { icon: "px-icon-friends", image: "/pixelated-icons/buttons/nav-friends.png", label: "FRIENDS", id: "friends", href: "/friends", size: 56, labelOffset: -11, iconOffset: 4 },
+    { icon: "px-icon-search",  image: "/pixelated-icons/buttons/nav-search.png",  label: "SEARCH",  id: "search",  href: "/search",  size: 42, labelOffset: -4,  iconOffset: 0 },
   ];
 
   return (
@@ -33,8 +33,12 @@ export function TabBar() {
             className={`px-tab${isActive ? " active" : ""}`}
             style={{ textDecoration: "none" }}
           >
-            <span className={`px-icon ${tab.icon}`} aria-hidden />
-            {tab.label}
+            {tab.image ? (
+              <img src={tab.image} alt="" style={{ width: tab.size, height: tab.size, position: "relative", top: tab.iconOffset ?? 0, imageRendering: "pixelated" }} />
+            ) : (
+              <span className={`px-icon ${tab.icon}`} aria-hidden />
+            )}
+            <span style={{ position: "relative", top: tab.labelOffset ?? 0 }}>{tab.label}</span>
           </Link>
         );
       })}

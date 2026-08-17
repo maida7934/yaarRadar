@@ -21,12 +21,17 @@ interface SpriteCharacterProps {
   /** Steps through the walk frames on loop when true, holds the idle frame otherwise. */
   isMoving: boolean;
   label: string;
+  /** Optional stacking override -- left unset, DOM order decides (as
+   * before); FindScene sets this to lift one sprite above the other only
+   * while they're close enough on screen to actually overlap. */
+  zIndex?: number;
 }
 
 // The new sheet's cells (78x130) are notably bigger than the old sheet's
 // (54x78) -- scaled down from before so on-screen character size stays
-// similar rather than suddenly ballooning.
-const DISPLAY_SCALE = 1.1;
+// similar rather than suddenly ballooning. Bumped up from 1.1 -- at that
+// size the sprites read as too small against the game world.
+const DISPLAY_SCALE = 1.4;
 // A touch slower than a real walking cadence reads calmer/smoother on a
 // small pixel-art loop -- too fast made the leg-alternation read as a
 // jittery side-to-side dance rather than a stride.
@@ -62,6 +67,7 @@ export function SpriteCharacter({
   sprites,
   isMoving,
   label,
+  zIndex,
 }: SpriteCharacterProps) {
   const left = useTransform(xPercent, (v) => `${v}%`);
   const top = useTransform(yPercent, (v) => `${v}%`);
@@ -144,7 +150,7 @@ export function SpriteCharacter({
   return (
     <motion.div
       className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-      style={{ left, top }}
+      style={{ left, top, zIndex }}
     >
       {/* Character sprite */}
       <motion.div

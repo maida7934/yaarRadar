@@ -265,6 +265,7 @@ export default function SearchPage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [requestErrorId, setRequestErrorId] = useState<string | null>(null);
+  const [requestErrorMessage, setRequestErrorMessage] = useState<string | null>(null);
   const [viewingUser, setViewingUser] = useState<UserSearchResult | null>(null);
   const [friendCharacters, setFriendCharacters] = useState<Map<string, string | null>>(new Map());
   const [myRequests, setMyRequests] = useState<FriendRequest[]>([]);
@@ -318,6 +319,7 @@ export default function SearchPage() {
   const sendRequest = async (id: string) => {
     if (!accessToken) return;
     setRequestErrorId(null);
+    setRequestErrorMessage(null);
     try {
       const created = await sendFriendRequest(accessToken, id);
       setMyRequests((prev) => [...prev, created]);
@@ -325,18 +327,21 @@ export default function SearchPage() {
       if (err instanceof ApiError && err.status === 409) {
         try {
           setMyRequests(await getFriendRequests(accessToken));
-        } catch {
+        } catch (retryErr) {
           setRequestErrorId(id);
+          setRequestErrorMessage(retryErr instanceof ApiError ? retryErr.message : null);
         }
         return;
       }
       setRequestErrorId(id);
+      setRequestErrorMessage(err instanceof ApiError ? err.message : null);
     }
   };
 
   const removeFriend = async (id: string) => {
     if (!accessToken) return;
     setRequestErrorId(null);
+    setRequestErrorMessage(null);
     try {
       await unfriend(accessToken, id);
       setFriendCharacters((prev) => {
@@ -345,21 +350,29 @@ export default function SearchPage() {
         return next;
       });
       setMyRequests((prev) => prev.filter((r) => r.sender_id !== id && r.receiver_id !== id));
-    } catch {
+    } catch (err) {
       setRequestErrorId(id);
+      setRequestErrorMessage(err instanceof ApiError ? err.message : null);
     }
   };
 
   const cancelRequest = async (id: string) => {
     if (!accessToken || !user) return;
     setRequestErrorId(null);
+    setRequestErrorMessage(null);
     const request = myRequests.find((r) => (r.receiver_id === id && r.sender_id === user.id));
     if (!request) return;
     try {
       await cancelFriendRequest(accessToken, request.id);
       setMyRequests((prev) => prev.filter((r) => r.id !== request.id));
-    } catch {
+    } catch (err) {
       setRequestErrorId(id);
+      // Most likely cause: the backend's DELETE /friends/requests/:id RLS
+      // policy only allows the receiver to delete the row (decline), not
+      // the sender (cancel) -- see CLAUDE.md discussion / friends.service.ts
+      // declineRequest, reused for both. Surface the real message so that's
+      // obvious instead of a generic "try again".
+      setRequestErrorMessage(err instanceof ApiError ? err.message : null);
     }
   };
 
@@ -468,7 +481,7 @@ export default function SearchPage() {
                     />
                     {requestErrorId === resultUser.id && (
                       <p className="text-[10px] font-bold px-1" style={{ color: "#C97F80", fontFamily: "var(--font-pixel)" }}>
-                        Could not complete that action. Try again.
+                        {requestErrorMessage || "Could not complete that action. Try again."}
                       </p>
                     )}
                   </div>
