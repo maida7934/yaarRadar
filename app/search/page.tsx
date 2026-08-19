@@ -383,7 +383,7 @@ export default function SearchPage() {
         backgroundColor: "#a0b78d", // Solid green background
       }}
     >
-      <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[68px] overflow-hidden">
+      <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[76px] overflow-hidden">
 
         {/* ── HEADER BANNER — same staircase notched-frame heading box as
             the Friends/Me pages, no icons, just "SEARCH" ──────────── */}
@@ -407,7 +407,7 @@ export default function SearchPage() {
             boxShadow: "inset 0 0 0 2px #d4ecb9",
             borderRadius: 14,
             imageRendering: "pixelated",
-            backgroundImage: "url(/yaarRadar-assets/forest-bridge.jpg)",
+            backgroundImage: "url(/yaarRadar-assets/search_bg.jpg)",
             backgroundSize: "cover",
             backgroundPosition: "center top",
             backgroundRepeat: "no-repeat",

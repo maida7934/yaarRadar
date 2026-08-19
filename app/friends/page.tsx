@@ -288,7 +288,7 @@ export default function FriendsPage() {
 
   return (
     <div className="flex flex-1 justify-center" style={{ backgroundColor: PAGE_OUTER_BG }}>
-      <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[68px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
+      <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[76px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
 
         {/* Page background -- tiled striped pattern, repeated at a smaller
             tile size than its native 736x920 so the stripes read as a
@@ -296,10 +296,10 @@ export default function FriendsPage() {
         <div
           className="absolute inset-0 z-0"
           style={{
-            backgroundImage: "url(/pixelated-icons/friends-page.jpg)",
-            backgroundSize: "160px 200px",
-            backgroundRepeat: "repeat",
-            backgroundPosition: "center",
+            backgroundImage: "url(/yaarRadar-assets/friendsbg.jpg)",
+            backgroundSize: "cover",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center top",
           }}
           aria-hidden
         />

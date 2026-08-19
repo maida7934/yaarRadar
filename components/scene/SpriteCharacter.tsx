@@ -31,7 +31,7 @@ interface SpriteCharacterProps {
 // (54x78) -- scaled down from before so on-screen character size stays
 // similar rather than suddenly ballooning. Bumped up from 1.1 -- at that
 // size the sprites read as too small against the game world.
-const DISPLAY_SCALE = 1.4;
+const DISPLAY_SCALE = 1.1;
 // A touch slower than a real walking cadence reads calmer/smoother on a
 // small pixel-art loop -- too fast made the leg-alternation read as a
 // jittery side-to-side dance rather than a stride.

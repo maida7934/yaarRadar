@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { motion, useMotionValue, useAnimationFrame, useTransform } from "framer-motion";
+import { motion, useMotionValue, useAnimationFrame } from "framer-motion";
 import gsap from "gsap";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { useCharacter } from "@/lib/characterState";
@@ -27,9 +27,9 @@ import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 // bottom-right. WORLD_SCALE is purely a *rendering* multiplier (keeps the
 // pixel art crisp/blocky at phone-screen size) and never enters the
 // world-coordinate math itself, so distance/bearing stay scale-independent.
-const WORLD_WIDTH = 1536;
+const WORLD_WIDTH = 1200;
 const WORLD_HEIGHT = 1024;
-const WORLD_SCALE = 1.4;
+const WORLD_SCALE = 1.1;
 // Each world-pixel is this many "meters" for the HUD readout -- tuned so
 // the ~40m default gap between Me and the test friend spawn point (see
 // SPAWN_SCREEN_OFFSET_* below) lands on the same "40m that way" example
@@ -140,6 +140,12 @@ export function FindScene() {
   const encounterCooldownRef = useRef(false);
   // Victory message fade-in
   const [victoryVisible, setVictoryVisible] = useState(false);
+  // Mirrors encounterSnapshot.current.meFacesRight, which sprite selection
+  // during render reads -- refs can't be read during render (their updates
+  // don't trigger a re-render, so the displayed sprite could silently go
+  // stale), so this is the render-safe copy; the ref itself still holds the
+  // full snapshot for the effect-only code below (positions, tween restart).
+  const [meFacesRightState, setMeFacesRightState] = useState(true);
 
   // GSAP-driven tween target -- a single plain object (not the Framer
   // motion values directly, gsap tweens plain numeric props) whose
@@ -169,6 +175,7 @@ export function FindScene() {
       meFacesRight,
     };
     encounterSnapshot.current = snap;
+    setMeFacesRightState(meFacesRight);
     setVictoryVisible(false);
     encounterPhaseRef.current = "facing";
     setEncounterPhase("facing");
@@ -496,6 +503,10 @@ export function FindScene() {
     // (see startEncounter) -- either way it's clamped so the viewport
     // never shows past the background image's own edges (the world is
     // larger than the viewport, but not infinite).
+    if (phase === "none") {
+      cameraFocus.current.x = meWorldX.get();
+      cameraFocus.current.y = meWorldY.get();
+    }
     const halfViewWorldW = viewportSize.width / (2 * WORLD_SCALE);
     const halfViewWorldH = viewportSize.height / (2 * WORLD_SCALE);
     const camX = WORLD_WIDTH <= halfViewWorldW * 2
@@ -574,7 +585,7 @@ export function FindScene() {
   //  "facing"   → turned toward each other, whichever side each one is
   //               actually standing on (see encounterSnapshot.meFacesRight)
   //  "settling"/"victory" → both face toward camera (down)
-  const meFacesRight = encounterSnapshot.current?.meFacesRight ?? true;
+  const meFacesRight = meFacesRightState;
   const meSprites = encounterPhase === "facing"
     ? (meFacesRight ? myCharacterBundle.faceRight : myCharacterBundle.faceLeft)
     : (encounterPhase === "settling" || encounterPhase === "victory")
@@ -603,9 +614,11 @@ export function FindScene() {
         style={{
           width: WORLD_WIDTH * WORLD_SCALE,
           height: WORLD_HEIGHT * WORLD_SCALE,
-          backgroundImage: "url(/pixelated-icons/background.png)",
-          backgroundSize: "100% 100%",
-          backgroundRepeat: "no-repeat",
+          backgroundColor: "#3d5c33",
+          backgroundImage: "url(/yaarRadar-assets/bg-test2.jpg)",
+          backgroundSize: "auto 100%",
+          backgroundPosition: "center",
+          backgroundRepeat: "repeat-x",
           imageRendering: "pixelated",
           x: bgTranslateX,
           y: bgTranslateY,
@@ -720,7 +733,7 @@ export function FindScene() {
         )}
       </div>
 
-      <div className="relative z-10 flex flex-1 w-full flex-col" style={{ paddingBottom: 68 }}>
+      <div className="relative z-10 flex flex-1 w-full flex-col" style={{ paddingBottom: 76 }}>
 
         {/* ── Distance readout + heading + settings — distance box and
             welcome box top-align; settings icon vertically centered between

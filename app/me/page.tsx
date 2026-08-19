@@ -196,7 +196,7 @@ export default function MePage() {
       }}
     >
       <div
-        className="w-full max-w-md relative min-h-dvh flex flex-col pb-[68px] overflow-hidden"
+        className="w-full max-w-md relative min-h-dvh flex flex-col pb-[76px] overflow-hidden"
         style={{ backgroundColor: "transparent" }}
       >
 
