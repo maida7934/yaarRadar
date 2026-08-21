@@ -264,7 +264,7 @@ export function FindScene() {
   }, []);
 
   // Character selection
-  const { characterId } = useCharacter();
+  const { characterId, loading: characterLoading } = useCharacter();
   const myCharacterBundle = CHARACTER_SPRITE_BUNDLES[characterId || DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Friend selection
@@ -404,10 +404,15 @@ export function FindScene() {
       const keys = keysRef.current;
       
       // Me (Arrow Keys)
-      const up = keys["ArrowUp"];
-      const down = keys["ArrowDown"];
-      const left = keys["ArrowLeft"];
-      const right = keys["ArrowRight"];
+      const rawUp = keys["ArrowUp"];
+      const rawDown = keys["ArrowDown"];
+      const rawLeft = keys["ArrowLeft"];
+      const rawRight = keys["ArrowRight"];
+      
+      const up = rawUp && !rawDown;
+      const down = rawDown && !rawUp;
+      const left = rawLeft && !rawRight;
+      const right = rawRight && !rawLeft;
       
       setMeState((prev) => {
         let nextFacing = prev.facing;
@@ -425,10 +430,15 @@ export function FindScene() {
       });
       
       // Friend (WASD)
-      const w = keys["w"] || keys["W"];
-      const s = keys["s"] || keys["S"];
-      const a = keys["a"] || keys["A"];
-      const d = keys["d"] || keys["D"];
+      const rawW = keys["w"] || keys["W"];
+      const rawS = keys["s"] || keys["S"];
+      const rawA = keys["a"] || keys["A"];
+      const rawD = keys["d"] || keys["D"];
+      
+      const w = rawW && !rawS;
+      const s = rawS && !rawW;
+      const a = rawA && !rawD;
+      const d = rawD && !rawA;
       
       setFriendState((prev) => {
         let nextFacing = prev.facing;
@@ -635,15 +645,23 @@ export function FindScene() {
           x2={friendScreenX} y2={friendScreenY}
         />
 
-        <SpriteCharacter
-          sprites={meSprites}
-          scale={scaleOne}
-          lookSway={0}
-          isMoving={encounterActive ? false : meState.moving}
-          xPercent={meScreenX} yPercent={meScreenY}
-          label="Me (Arrows)"
-          zIndex={spritesOverlapping ? 2 : undefined}
-        />
+        {/* Wait out the character fetch before rendering -- otherwise, on a
+            fresh load, this flashes the default character bundle first (the
+            fallback while characterId is still resolving) and only swaps to
+            the real picked character once GET /users/me resolves. Same fix
+            as the friend sprite below, for the same reason. No accessToken
+            (dev/testing) still renders immediately. */}
+        {(!accessToken || !characterLoading) && (
+          <SpriteCharacter
+            sprites={meSprites}
+            scale={scaleOne}
+            lookSway={0}
+            isMoving={encounterActive ? false : meState.moving}
+            xPercent={meScreenX} yPercent={meScreenY}
+            label="Me (Arrows)"
+            zIndex={spritesOverlapping ? 2 : undefined}
+          />
+        )}
 
         {/* Wait out the friends fetch before rendering the friend sprite --
             otherwise it flashes the default character bundle first, then
@@ -680,20 +698,6 @@ export function FindScene() {
                 transition: "opacity 0.5s ease-out, transform 0.5s ease-out",
               }}
             >
-              {/* Sparkle particles */}
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex gap-3">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <div
-                    key={i}
-                    className="w-2 h-2"
-                    style={{
-                      backgroundColor: i % 2 === 0 ? "#FFD700" : "#FFA500",
-                      imageRendering: "pixelated",
-                      animation: `encounterSparkle 1s ease-in-out ${i * 0.15}s infinite alternate`,
-                    }}
-                  />
-                ))}
-              </div>
               {/* Banner box */}
               <div className="relative px-5 py-2.5">
                 <NotchedFrame colors={["#5C4528", "#F3E8DB", "#8EA971"]} step={4} ringWidth={3.5} />

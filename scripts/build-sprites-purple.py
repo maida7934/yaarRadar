@@ -11,6 +11,12 @@ spritefinal.jpeg's (different image size, an extra duplicate row), so the
 original build-sprites.py's hardcoded boxes don't apply. The two BACK/UP
 frames that came out merged (the character's hair overlaps the
 neighboring frame slot) are split evenly after detection -- see UP_WALK.
+
+`downleft`/`downright`/`upleft`/`upright` are no longer generated from
+this sheet -- see build-sprites-purple-downdiag.py and
+build-sprites-purple-updiag.py. DOWN_LEFT_WALK/DOWN_RIGHT_WALK/
+UP_LEFT_WALK/UP_RIGHT_WALK below are kept only as a record of where the
+original crops lived.
 """
 
 from sprite_pipeline import generate
@@ -29,13 +35,9 @@ UP_RIGHT_WALK = [(488, 909, 565, 1041), (582, 909, 656, 1041), (679, 909, 753, 1
 
 DIRECTIONS = {
     "down": DOWN_WALK,
-    "downleft": DOWN_LEFT_WALK,
-    "downright": DOWN_RIGHT_WALK,
     "left": LEFT_WALK,
     "up": UP_WALK,
     "right": RIGHT_WALK,
-    "upleft": UP_LEFT_WALK,
-    "upright": UP_RIGHT_WALK,
 }
 
 if __name__ == "__main__":

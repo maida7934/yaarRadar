@@ -347,7 +347,11 @@ export default function FriendsPage() {
                   className="w-full h-full gap-2"
                   style={{ fontSize: 13 }}
                 >
-                  <img src="/pixelated-icons/buttons/nav-friends-new.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated", flexShrink: 0 }} />
+                  <img
+                    src="/pixelated-icons/buttons/nav-friends-new.png"
+                    alt=""
+                    style={{ imageRendering: "pixelated", flexShrink: 0, width: 20, height: 26, marginLeft: -4 }}
+                  />
                   FRIENDS
                 </PixelButton>
               </div>

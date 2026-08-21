@@ -4,6 +4,10 @@ actual image processing lives in scripts/sprite_pipeline.py (shared with
 build-sprites-purple.py and build-sprites-hat.py). Run manually
 (`python scripts/build-sprites-officer.py`) if the source sheet changes.
 
+`down` is no longer generated from this sheet -- it's been superseded by a
+standalone green-screen sheet, see build-sprites-officer-down.py. DOWN_WALK
+below is kept only as a record of where the original crop lived.
+
 This sheet is otherwise clean (unlike hat-girl.png, no merged or
 duplicated frames -- see scratchpad/detect_boxes_officer2.py), but has two
 things the other two don't:
@@ -45,7 +49,6 @@ UP_LEFT_WALK = [(89, 718, 143, 828), (175, 718, 227, 828), (258, 718, 310, 828),
 UP_RIGHT_WALK = [(559, 718, 612, 828), (649, 718, 703, 827), (744, 718, 797, 827), (838, 717, 891, 827)]
 
 DIRECTIONS = {
-    "down": DOWN_WALK,
     "downleft": DOWN_LEFT_WALK,
     "downright": DOWN_RIGHT_WALK,
     "left": LEFT_WALK,
