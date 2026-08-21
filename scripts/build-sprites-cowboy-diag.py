@@ -9,8 +9,9 @@ unlabeled, top row then bottom row per request:
 
 - "ChatGPT Image Aug 21, 2026, 09_50_04 PM.png": front-facing (toward
   camera) lean pose -- top row -> downleft, bottom row -> downright.
-- "ChatGPT Image Aug 21, 2026, 09_51_02 PM.png": back-facing (walking
-  away) lean pose -- top row -> upleft, bottom row -> upright.
+- "ChatGPT Image Aug 21, 2026, 10_54_14 PM.png": back-facing (walking
+  away) lean pose -- top row -> upleft, bottom row -> upright. Supersedes
+  an earlier upleft/upright sheet ("09_51_02 PM.png").
 
 Image processing lives in scripts/sprite_pipeline.py (the standard
 chroma-key + spill-suppression pipeline); this file only supplies each
@@ -28,13 +29,13 @@ from PIL import Image
 from sprite_pipeline import CELL_H, CELL_W, build_strip, place_in_cell
 
 DOWN_DIAG_SRC = "public/yaarRadar-assets/ChatGPT Image Aug 21, 2026, 09_50_04 PM.png"
-UP_DIAG_SRC = "public/yaarRadar-assets/ChatGPT Image Aug 21, 2026, 09_51_02 PM.png"
+UP_DIAG_SRC = "public/yaarRadar-assets/ChatGPT Image Aug 21, 2026, 10_54_14 PM.png"
 OUT_DIR = "public/sprites-cowboy/"
 
 DOWN_LEFT_WALK = [(287, 60, 448, 370), (623, 65, 808, 376), (1004, 60, 1163, 370), (1329, 64, 1492, 376)]
 DOWN_RIGHT_WALK = [(256, 495, 413, 806), (592, 497, 762, 810), (974, 495, 1132, 806), (1314, 497, 1484, 811)]
-UP_LEFT_WALK = [(285, 104, 418, 388), (629, 105, 778, 395), (986, 104, 1119, 388), (1322, 104, 1463, 396)]
-UP_RIGHT_WALK = [(307, 508, 442, 789), (615, 508, 762, 796), (1008, 508, 1143, 789), (1321, 508, 1465, 796)]
+UP_LEFT_WALK = [(235, 73, 381, 404), (534, 75, 700, 408), (859, 73, 1004, 404), (1145, 73, 1312, 407)]
+UP_RIGHT_WALK = [(239, 557, 381, 880), (536, 558, 703, 885), (864, 557, 1001, 880), (1149, 558, 1315, 885)]
 
 FILL_HEIGHT_RATIO = 0.862
 
