@@ -10,7 +10,7 @@ export interface CharacterOption {
 export const CHARACTER_OPTIONS: CharacterOption[] = [
   { id: "default", label: "Classic", pfp: "/sprites/chibi-down-idle.png" },
   { id: "purple", label: "Purple", pfp: "/sprites-purple/chibi-down-idle.png" },
-  { id: "whiteboy", label: "White Boy", pfp: "/sprites-whiteboy/chibi-down-idle.png" },
+  { id: "cowboy", label: "Cowboy", pfp: "/sprites-cowboy/chibi-down-idle.png" },
   { id: "officer", label: "Officer", pfp: "/sprites-officer/chibi-down-idle.png" },
 ];
 

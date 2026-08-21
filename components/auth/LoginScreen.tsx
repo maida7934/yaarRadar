@@ -58,7 +58,7 @@ export function LoginScreen() {
         <div
           className="absolute inset-0 z-0"
           style={{
-            backgroundImage: "url(/pixelated-icons/bgs.jpg)",
+            backgroundImage: "url(/yaarRadar-assets/login.png)",
             backgroundSize: "cover",
             backgroundPosition: "center",
             backgroundRepeat: "no-repeat",
@@ -67,13 +67,35 @@ export function LoginScreen() {
         />
 
         <div className="relative z-10 w-full flex flex-col items-center gap-6">
-          {/* Heading -- staircase double-outline notched frame (same
-              NotchedFrame technique as the Me page's headings), not an
-              image, so it stays crisp at any width. */}
-          <div className="relative w-full flex items-center justify-center" style={{ height: 52 }}>
-            <NotchedFrame colors={["var(--px-border)", "var(--px-white)", "#bfc08e"]} step={5} ringWidth={3} />
+          {/* Heading -- decorative pixel-art frame image (flowers/leaves at
+              each end), aspect ratio preserved (~3:1) rather than forced
+              into a fixed height, with the title overlaid centered on top. */}
+          <div className="relative w-full">
+            {/* Solid fill behind the frame's transparent interior -- same
+                sage tone as the LOG IN button (.px-btn-dark's "#bfc08e"),
+                so the heading reads as a filled bar instead of showing the
+                page background through the gap. Clipped to the frame's own
+                interior silhouette (traced from loginbox.png's alpha
+                channel, including the pinch where the corner flowers dip
+                inward) rather than a plain rectangle, so the fill never
+                pokes out past the artwork's notched/rounded edges. */}
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundColor: "#bfc08e",
+                clipPath:
+                  "polygon(8.75% 24.17%, 7.41% 28.31%, 6.08% 32.46%, 6.12% 38.67%, 7.41% 44.89%, 8.56% 49.03%, 8.01% 53.18%, 6.12% 59.39%, 6.12% 65.61%, 7.41% 69.75%, 8.75% 73.9%, 91.16% 73.9%, 92.5% 69.75%, 93.78% 65.61%, 93.78% 59.39%, 91.9% 53.18%, 91.39% 49.03%, 92.5% 44.89%, 93.78% 38.67%, 93.78% 32.46%, 92.5% 28.31%, 91.16% 24.17%)",
+              }}
+              aria-hidden
+            />
+            <img
+              src="/pixelated-icons/loginbox.png"
+              alt=""
+              className="relative w-full h-auto block"
+              style={{ imageRendering: "pixelated" }}
+            />
             <h1
-              className="text-xl font-bold text-center tracking-widest"
+              className="absolute inset-0 flex items-center justify-center text-2xl font-bold text-center tracking-widest"
               style={{ color: "#5a4632" }}
             >
               YAARRADAR
@@ -84,13 +106,13 @@ export function LoginScreen() {
             onSubmit={handleSubmit}
             className="relative w-full p-5 flex flex-col gap-4"
           >
-            <NotchedFrame colors={["var(--px-border)", "#fdf1e5"]} step={5} ringWidth={4} />
+            <NotchedFrame colors={["#98755b", "#d4bbac", "#fdf1e5"]} step={5} ringWidth={4} />
 
             {/* Mode toggle -- simple single-outline notched box, same plain
                 look as the Friends page's FRIENDS/VIEW REQUESTS container,
                 just code-drawn instead of a cropped PNG. */}
             <div className="relative flex p-1" style={{ height: 40 }}>
-              <NotchedFrame colors={["var(--px-border)", "#fdf1e5"]} step={4} ringWidth={3} />
+              <NotchedFrame colors={["#503828", "#fdf1e5"]} step={4} ringWidth={3} />
               <button
                 type="button"
                 className="flex-1 text-[11px] font-bold tracking-wide rounded-sm"
@@ -163,7 +185,17 @@ export function LoginScreen() {
               </p>
             )}
 
-            <button type="submit" disabled={submitting} className="px-btn px-btn-dark w-full p-3" style={{ fontSize: 11 }}>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-btn px-btn-dark w-full p-3"
+              style={{
+                fontSize: 11,
+                borderRadius: 14,
+                borderColor: "#503828",
+                boxShadow: "4px 4px 0 #503828, inset -3px -4px 0 rgba(0,0,0,0.25), inset 2px 2px 0 rgba(255,255,255,0.35)",
+              }}
+            >
               {submitting ? "..." : mode === "login" ? "LOG IN" : "SIGN UP"}
             </button>
 
@@ -177,7 +209,12 @@ export function LoginScreen() {
               type="button"
               onClick={() => setGoogleNotice(true)}
               className="px-btn px-btn-ghost w-full p-3"
-              style={{ fontSize: 11 }}
+              style={{
+                fontSize: 11,
+                borderRadius: 14,
+                borderColor: "#503828",
+                boxShadow: "4px 4px 0 #503828, inset -3px -4px 0 rgba(0,0,0,0.25), inset 2px 2px 0 rgba(255,255,255,0.35)",
+              }}
             >
               SIGN IN WITH GOOGLE
             </button>

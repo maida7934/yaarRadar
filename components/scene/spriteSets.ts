@@ -180,7 +180,7 @@ export const CHARACTER_SPRITE_BUNDLES: Record<string, CharacterSpriteBundle> = {
   [DEFAULT_CHARACTER_ID]: buildCharacterBundle("/sprites"),
   purple: buildCharacterBundle("/sprites-purple"),
   officer: buildCharacterBundle("/sprites-officer"),
-  whiteboy: buildCharacterBundle("/sprites-whiteboy"),
+  cowboy: buildCharacterBundle("/sprites-cowboy"),
 };
 
 // CSS background-image doesn't crossfade -- the old image vanishes the

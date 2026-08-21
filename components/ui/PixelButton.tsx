@@ -102,6 +102,16 @@ export function PixelButton({
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
+        // Icon+label content can be wider than the button on narrow phones
+        // (e.g. Galaxy S8's 360px viewport) -- min-width:0 lets the button
+        // actually shrink to its flex-1 parent's width instead of forcing
+        // the row wider, and flexWrap lets the label drop to a second line
+        // there instead of the icon overflowing past the pill sprite's
+        // edges. Both are no-ops once content already fits on one line, so
+        // wider screens render identically.
+        minWidth: 0,
+        flexWrap: "wrap",
+        textAlign: "center",
         ...style,
       }}
     >

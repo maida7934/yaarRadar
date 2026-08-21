@@ -347,7 +347,7 @@ export default function FriendsPage() {
                   className="w-full h-full gap-2"
                   style={{ fontSize: 13 }}
                 >
-                  <img src="/pixelated-icons/friends.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated" }} />
+                  <img src="/pixelated-icons/buttons/nav-friends-new.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated", flexShrink: 0 }} />
                   FRIENDS
                 </PixelButton>
               </div>
@@ -358,7 +358,7 @@ export default function FriendsPage() {
                   className="w-full h-full gap-2"
                   style={{ fontSize: 13 }}
                 >
-                  <img src="/pixelated-icons/mail.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated" }} />
+                  <img src="/pixelated-icons/mail.png" alt="" className="w-5 h-5" style={{ imageRendering: "pixelated", flexShrink: 0 }} />
                   VIEW REQUESTS
                 </PixelButton>
                 {requests.length > 0 && (

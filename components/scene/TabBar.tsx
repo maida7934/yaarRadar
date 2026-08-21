@@ -17,7 +17,7 @@ export function TabBar() {
   // aspect ratio ~0.51) with an explicit width lets it render at its
   // natural proportions instead of being squashed into a square.
   const tabs = [
-    { icon: "px-icon-home",    image: "/pixelated-icons/buttons/nav-home.png",       label: "HOME",    id: "home",    href: "/",        size: 28, width: 28, labelOffset: 0, iconOffset: 0 },
+    { icon: "px-icon-home",    image: "/pixelated-icons/buttons/nav-home-clean.png", label: "HOME",    id: "home",    href: "/",        size: 28, width: 28, labelOffset: 0, iconOffset: 0 },
     { icon: "px-icon-me",      image: "/pixelated-icons/buttons/nav-me-cropped.png", label: "ME",      id: "me",      href: "/me",      size: 34, width: 18, labelOffset: 0, iconOffset: 0 },
     { icon: "px-icon-friends", image: "/pixelated-icons/buttons/nav-friends-new.png",label: "FRIENDS", id: "friends", href: "/friends", size: 28, width: 28, labelOffset: 0, iconOffset: 0 },
     { icon: "px-icon-search",  image: "/pixelated-icons/buttons/nav-search-new.png", label: "SEARCH",  id: "search",  href: "/search",  size: 28, width: 28, labelOffset: 0, iconOffset: 0 },
