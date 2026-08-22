@@ -97,6 +97,11 @@ export interface Profile {
   id: string;
   username: string;
   character_id: string | null;
+  /** null = never renamed since signup (so no cooldown is running yet);
+   * otherwise the ISO timestamp of the last actual rename, which the
+   * 10-day rename cooldown is measured from. Returned by both GET and
+   * PATCH /users/me. */
+  username_changed_at: string | null;
   bio?: string | null;
   created_at: string;
 }
@@ -109,7 +114,15 @@ export function getMe(accessToken: string) {
   return request<Profile>("/users/me", accessToken);
 }
 
-export function updateMe(accessToken: string, updates: { characterId?: string; bio?: string }) {
+/** Both `characterId` and `username` are optional and independent -- send
+ * either alone or both together. Renaming is rate-limited server-side to
+ * once every 10 days and rejects regardless of what the UI allows: a
+ * too-soon rename comes back 400 "You can change your username again in N
+ * days", a clash 409 "Username already taken", and a malformed one (not
+ * 3-20 chars of letters/numbers/underscore) 400. All three arrive already
+ * phrased for display, so callers should show ApiError.message as-is
+ * rather than substituting their own wording. */
+export function updateMe(accessToken: string, updates: { characterId?: string; username?: string; bio?: string }) {
   return request<Profile>("/users/me", accessToken, {
     method: "PATCH",
     body: JSON.stringify(updates),

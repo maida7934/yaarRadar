@@ -7,7 +7,9 @@ import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { useAuth } from "@/lib/authState";
 import { useCharacter } from "@/lib/characterState";
 import { CHARACTER_OPTIONS } from "@/lib/characterAvatars";
-import { getMe, updateMe } from "@/lib/api";
+import { ApiError, getMe, updateMe } from "@/lib/api";
+import { rememberUser } from "@/lib/userDirectory";
+import { usernameCooldownDaysLeft } from "@/utils/usernameCooldown";
 
 const BACKGROUND_OPTIONS = [
   { id: "road", label: "Stone Road" },
@@ -19,7 +21,6 @@ type ActiveModal = "profile" | "layout" | null;
 const GENDER_OPTIONS = ["Alpha", "Beta", "Other"];
 
 interface ProfileMetadata {
-  name?: string;
   gender?: string;
 }
 
@@ -124,8 +125,21 @@ export default function MePage() {
   }, []);
 
   const metadata = (user?.user_metadata ?? {}) as ProfileMetadata & { bio?: string };
-  const name = metadata.name ?? "PlayerOne";
   const gender = metadata.gender ?? GENDER_OPTIONS[0];
+
+  // Your name here is the backend `profiles.username` -- the exact string
+  // other people see for you in Search and in their friends list. It used to
+  // be a separate free-text `name` in Supabase auth metadata, editable from
+  // Edit Profile, which meant your profile could say one thing while
+  // everyone else saw another. There's only one name now.
+  //
+  // Editable via PATCH /users/me, but rate-limited to one rename every 10
+  // days server-side -- `username_changed_at` is what that cooldown is
+  // measured from, and it's null on an account that has never been renamed.
+  // See utils/usernameCooldown.ts for the "available in N days" maths.
+  const [username, setUsername] = useState<string | null>(null);
+  const [usernameChangedAt, setUsernameChangedAt] = useState<string | null>(null);
+  const name = username ?? "...";
 
   const [bio, setBio] = useState(metadata.bio ?? "Just here to find my friends.");
   useEffect(() => {
@@ -133,7 +147,10 @@ export default function MePage() {
     let cancelled = false;
     getMe(accessToken)
       .then((profile) => {
-        if (!cancelled && profile.bio) {
+        if (cancelled) return;
+        setUsername(profile.username);
+        setUsernameChangedAt(profile.username_changed_at);
+        if (profile.bio) {
           setBio(profile.bio);
           if (profile.bio !== metadata.bio && updateProfile) {
             updateProfile({ bio: profile.bio }).catch(() => { });
@@ -149,14 +166,18 @@ export default function MePage() {
     };
   }, [accessToken, metadata.bio, updateProfile]);
 
-  const [draftName, setDraftName] = useState(name);
+  const [draftUsername, setDraftUsername] = useState("");
+  // Recomputed each render rather than stored: it's a function of wall-clock
+  // time, so a cached value would go stale while the modal sits open.
+  const usernameCooldownDays = usernameCooldownDaysLeft(usernameChangedAt);
+  const usernameLocked = usernameCooldownDays > 0;
   const [draftGender, setDraftGender] = useState(gender);
   const [draftBio, setDraftBio] = useState(bio);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const openProfileModal = () => {
-    setDraftName(name);
+    setDraftUsername(username ?? "");
     setDraftGender(gender);
     setDraftBio(bio);
     setProfileError(null);
@@ -167,14 +188,42 @@ export default function MePage() {
     setSavingProfile(true);
     setProfileError(null);
     try {
-      await updateProfile({ name: draftName, gender: draftGender, bio: draftBio });
+      // updateMe goes first, and only it can fail in a way worth reporting
+      // (rename rejected). Saving gender/bio first would leave those applied
+      // while the modal stays open showing a rename error, so the user can't
+      // tell what actually got saved.
       if (accessToken) {
-        const updated = await updateMe(accessToken, { characterId, bio: draftBio });
+        const trimmed = draftUsername.trim();
+        // Only send `username` when it's genuinely different -- resubmitting
+        // the current name would otherwise be a "rename" that could start a
+        // fresh 10-day cooldown for no reason.
+        const renaming = trimmed.length > 0 && trimmed !== username;
+        const updated = await updateMe(accessToken, {
+          characterId,
+          bio: draftBio,
+          ...(renaming ? { username: trimmed } : {}),
+        });
         setBio(updated.bio ?? draftBio);
+        setUsername(updated.username);
+        setUsernameChangedAt(updated.username_changed_at);
+        // Refresh any cached copy of our own row. Search excludes you from
+        // your own results so this normally won't be present, but if it ever
+        // is, a stale username here would outlive the rename.
+        rememberUser(updated.id, updated.username, updated.character_id, updated.bio ?? null);
       }
+      await updateProfile({ gender: draftGender, bio: draftBio });
       setActiveModal(null);
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : "Could not save. Try again.");
+      // Cooldown (400), "Username already taken" (409) and invalid-format
+      // (400) all arrive already phrased for display -- show them as-is
+      // rather than collapsing them into one generic failure.
+      setProfileError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Could not save. Try again.",
+      );
     } finally {
       setSavingProfile(false);
     }
@@ -186,22 +235,14 @@ export default function MePage() {
   const avatarPfp = characterLoading ? "/pixelated-icons/profile-avatar.png" : activeCharacter.pfp;
 
   return (
-    <div
-      className="flex flex-1 justify-center"
-      style={{
-        backgroundImage: "url(/yaarRadar-assets/mebg.jpg)",
-        backgroundSize: "cover",
-        backgroundPosition: "center top",
-        backgroundRepeat: "no-repeat",
-      }}
-    >
+    <div className="flex flex-1 justify-center page-bg-me">
       <div
-        className="w-full max-w-md relative min-h-dvh flex flex-col pb-[76px] overflow-hidden"
+        className="w-full relative min-h-dvh flex flex-col pb-[76px] overflow-hidden"
         style={{ backgroundColor: "transparent" }}
       >
 
         {/* ── Header ──────────────────────────────────────────────── */}
-        <div className="relative z-10 px-3 pt-5 pb-3 flex items-center justify-center gap-2">
+        <div className="relative z-10 px-3 pt-5 pb-3 flex items-center justify-center gap-2 mx-auto w-full max-w-2xl">
 
           {/* Banner — drawn as an inline SVG (not a raster/border-image asset) so
               the notched double-outline scales crisply at any container width,
@@ -261,19 +302,16 @@ export default function MePage() {
         </div>
 
         {/* ── Content ───────────────────────────────────── */}
-        <div className="relative z-10 flex-1 overflow-hidden px-4 flex flex-col gap-4 pb-3">
+        <div className="relative z-10 flex-1 overflow-hidden px-4 flex flex-col md:flex-row md:items-center gap-6 pb-3 mx-auto w-full max-w-5xl">
 
           {/* ── Profile card ─────────────────────────────────────── */}
           <div
             ref={cardRef}
-            className="flex flex-col items-center justify-center gap-3"
+            className="flex flex-col items-center justify-center gap-3 w-full md:w-[55%] flex-[1.7] md:flex-none"
             style={{
               position: "relative",
               overflow: "hidden",
               padding: "20px 18px",
-              marginLeft: 4,
-              marginRight: 4,
-              flex: 1.7,
             }}
           >
             {/* Frame — same drawn, notched-outline shape as the "MY PROFILE"
@@ -509,13 +547,10 @@ export default function MePage() {
 
           {/* ── OPTIONS section ──────────────────────────────────── */}
           <div
-            className="flex flex-col items-center justify-center gap-4"
+            className="flex flex-col items-center justify-center gap-4 w-full md:w-[45%] flex-[1.3] md:flex-none"
             style={{
               padding: "44px 14px 28px",
-              marginLeft: 4,
-              marginRight: 4,
               position: "relative",
-              flex: 1.3,
             }}
           >
             <NotchedFrame colors={["#8C6551", "#F3E8DB", "#365224", "#fdf1e5"]} step={5} ringWidth={4} />
@@ -673,8 +708,26 @@ export default function MePage() {
             {/* Body */}
             <div className="p-4 flex flex-col gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold" style={{ color: "#6B4731" }}>NAME</span>
-                <input className="px-input login-input" style={{ backgroundColor: "#ffffff" }} value={draftName} onChange={(e) => setDraftName(e.target.value)} />
+                <span className="text-[10px] font-bold" style={{ color: "#6B4731" }}>USERNAME</span>
+                <input
+                  className="px-input login-input"
+                  style={{
+                    backgroundColor: usernameLocked ? "#e6e3d8" : "#ffffff",
+                    opacity: usernameLocked ? 0.9 : 1,
+                  }}
+                  value={draftUsername}
+                  onChange={(e) => setDraftUsername(e.target.value)}
+                  disabled={usernameLocked}
+                  maxLength={20}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <span className="text-[9px]" style={{ color: usernameLocked ? "#8C6551" : "#4A6D36" }}>
+                  {usernameLocked
+                    ? `Changed recently -- you can rename again in ${usernameCooldownDays} day${usernameCooldownDays === 1 ? "" : "s"}.`
+                    : "This is what other people see when they search for you. 3-20 characters, letters/numbers/underscore. You can change it once every 10 days."}
+                </span>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold" style={{ color: "#6B4731" }}>GENDER</span>
