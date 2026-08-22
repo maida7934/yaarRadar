@@ -25,15 +25,27 @@ export function ConnectionLine({ x1, y1, x2, y2 }: ConnectionLineProps) {
       aria-hidden
       style={{ pointerEvents: "none" }}
     >
+      {/* Outer dark outline/shadow for high contrast against any background */}
       <motion.line
         x1={x1}
         y1={y1}
         x2={x2}
         y2={y2}
-        stroke="white"
-        strokeOpacity={0.85}
-        strokeWidth={1.5}
-        strokeDasharray="4 3"
+        stroke="#1A330B"
+        strokeOpacity={0.8}
+        strokeWidth={7}
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      {/* Bright inner path (cream/gold) for high visibility */}
+      <motion.line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke="#FDF5E6"
+        strokeOpacity={1}
+        strokeWidth={4}
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
       />

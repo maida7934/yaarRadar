@@ -380,14 +380,18 @@ export default function SearchPage() {
     <div
       className="flex flex-1 justify-center"
       style={{
-        backgroundColor: "#a0b78d", // Solid green background
+        backgroundColor: "#a0b78d",
+        backgroundImage: "url(/yaarRadar-assets/search_bg_wide.jpg)",
+        backgroundSize: "cover",
+        backgroundPosition: "center top",
+        backgroundRepeat: "no-repeat",
       }}
     >
-      <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[76px] overflow-hidden">
+      <div className="w-full relative min-h-dvh flex flex-col pb-[76px] overflow-hidden">
 
         {/* ── HEADER BANNER — same staircase notched-frame heading box as
             the Friends/Me pages, no icons, just "SEARCH" ──────────── */}
-        <div className="relative z-10 pt-5 px-4">
+        <div className="relative z-10 pt-5 px-4 mx-auto w-full max-w-2xl">
           <div
             className="relative flex items-center justify-center"
             style={{ width: "100%", height: 56 }}
@@ -398,21 +402,13 @@ export default function SearchPage() {
         </div>
 
         {/* ── OUTER PANEL — wraps the search bar and results/idle area,
-            spanning down to just above the tab bar, same green pixel-art
-            border language as the header icon boxes above */}
-        <div
-          className="relative z-10 flex-1 flex flex-col mx-3 mt-3 mb-2 overflow-hidden"
-          style={{
-            border: "3px solid #6b8453",
-            boxShadow: "inset 0 0 0 2px #d4ecb9",
-            borderRadius: 14,
-            imageRendering: "pixelated",
-            backgroundImage: "url(/yaarRadar-assets/search_bg.jpg)",
-            backgroundSize: "cover",
-            backgroundPosition: "center top",
-            backgroundRepeat: "no-repeat",
-          }}
-        >
+            spanning down to just above the tab bar. On phones it's a framed
+            card with the green pixel-art border language of the header boxes
+            above, carrying its own portrait artwork; from md up the frame and
+            that artwork drop away so the page's wide background is the only
+            one showing. Both states live in .search-panel (globals.css) --
+            they can't be inline styles, which would beat the media query. */}
+        <div className="search-panel relative z-10 flex-1 flex flex-col mx-3 md:mx-auto md:w-full md:max-w-3xl mt-3 mb-2 overflow-hidden">
 
         {/* ── SEARCH BAR ────────────────────────────────────────────── */}
         <div className="relative z-10 px-4 pt-4 pb-2">

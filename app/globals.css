@@ -336,3 +336,59 @@ button, a, [role="button"] {
   50%  { transform: translateY(-6px) scale(1.3); opacity: 0.6; }
   100% { transform: translateY(-2px) scale(0.7); opacity: 1; }
 }
+
+/* ── Search page's results/idle panel ──────────────────────────────────
+   On phones this is a framed card carrying its own portrait artwork
+   (search_bg.jpg), sitting on top of the page wrapper's landscape
+   background (search_bg_wide.jpg). On a wide viewport that reads as a
+   picture inside a picture -- two competing backgrounds with a border
+   between them -- so from md up the frame and its artwork both drop away
+   and the wide background is the only one left.
+
+   Done as a media query rather than Tailwind `md:` variants because these
+   are all properties the component sets inline (border/shadow/background),
+   and an inline style would win over any utility class. The search bar and
+   the cat card keep their own frames at every width -- only this outer
+   container's decoration is conditional. */
+.search-panel {
+  border: 3px solid #6b8453;
+  box-shadow: inset 0 0 0 2px #d4ecb9;
+  border-radius: 14px;
+  image-rendering: pixelated;
+  background-image: url("/yaarRadar-assets/search_bg.jpg");
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+}
+
+@media (min-width: 768px) {
+  .search-panel {
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    background-image: none;
+  }
+}
+
+.page-bg-friends {
+  background-image: url("/yaarRadar-assets/friendsbg.jpg");
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+}
+
+.page-bg-me {
+  background-image: url("/yaarRadar-assets/mebg.jpg");
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+}
+
+@media (min-width: 768px) {
+  .page-bg-friends {
+    background-image: url("/yaarRadar-assets/friendsbg_wide.jpg");
+  }
+  .page-bg-me {
+    background-image: url("/yaarRadar-assets/mebg_wide.jpg");
+  }
+}

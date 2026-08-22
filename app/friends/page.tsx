@@ -288,25 +288,19 @@ export default function FriendsPage() {
 
   return (
     <div className="flex flex-1 justify-center" style={{ backgroundColor: PAGE_OUTER_BG }}>
-      <div className="w-full max-w-md relative min-h-dvh flex flex-col pb-[76px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
+      <div className="w-full relative min-h-dvh flex flex-col pb-[76px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
 
         {/* Page background -- tiled striped pattern, repeated at a smaller
             tile size than its native 736x920 so the stripes read as a
             texture rather than one giant stretched image. */}
         <div
-          className="absolute inset-0 z-0"
-          style={{
-            backgroundImage: "url(/yaarRadar-assets/friendsbg.jpg)",
-            backgroundSize: "cover",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "center top",
-          }}
+          className="absolute inset-0 z-0 page-bg-friends"
           aria-hidden
         />
 
         {/* Header */}
         <div
-          className="relative z-10 p-6 flex flex-col gap-2"
+          className="relative z-10 p-6 flex flex-col gap-2 mx-auto w-full max-w-2xl"
         >
           <div className="flex items-center justify-center">
             <div
@@ -380,14 +374,14 @@ export default function FriendsPage() {
         </div>
 
         {/* Content */}
-        <div className="relative z-10 flex-1 overflow-y-auto p-4">
+        <div className="relative z-10 flex-1 overflow-y-auto p-4 mx-auto w-full max-w-5xl">
           {tab === "friends" ? (
             friendsLoading ? (
               <div className="text-center p-8 text-sm" style={{ color: TEXT_MUTED }}>Loading...</div>
             ) : friendsError ? (
               <div className="text-center p-8 text-sm font-bold" style={{ color: RED }}>{friendsError}</div>
             ) : friends.length > 0 ? (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {friends.map((friend) => {
                   const pfp = characterAvatarSrc(friend.character_id);
                   return (

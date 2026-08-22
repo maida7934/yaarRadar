@@ -25,7 +25,7 @@ export function TabBar() {
 
   return (
     <nav
-      className="absolute bottom-0 left-0 right-0 z-30 flex"
+      className="absolute bottom-0 left-0 right-0 z-30 flex mx-auto w-full max-w-md md:max-w-xl"
       style={{ height: 76 }}
     >
       {/* Same staircase-notched frame technique as the rest of the app's
