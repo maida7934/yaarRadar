@@ -7,14 +7,77 @@ import { NotchedFrame } from "@/components/ui/NotchedFrame";
 
 type Mode = "login" | "signup";
 
-/**
- * Shown in place of the whole app whenever there's no session (see
- * AuthGate). Real backend calls now -- POST /auth/login or /auth/signup
- * via lib/authState's login()/signup(), which also hands the session to
- * supabase-js (see CLAUDE.md's auth flow). Google isn't in the backend's
- * documented auth contract (email/password only), so that button doesn't
- * fake a login anymore -- it just says so.
- */
+/** Pixel-drawn eye toggle, open or struck through. Built from a character
+ * grid rather than SVG path outlines -- same technique as the Me page's
+ * ProfileLeaf -- because a hand-written outline path for a 1px diagonal
+ * self-intersects and renders as a broken staircase. One rect per pixel is
+ * both easier to read and exactly what's intended. */
+const EYE_GRID = [
+  "................",
+  "................",
+  "................",
+  "................",
+  ".....oooooo.....",
+  "...oowwwwwwoo...",
+  "..owwwwiiwwwwo..",
+  "..owwwiiiiwwwo..",
+  "..owwwwiiwwwwo..",
+  "...oowwwwwwoo...",
+  ".....oooooo.....",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+];
+
+/** Overlaid on EYE_GRID when the password is visible. `s` is a lighter
+ * trailing pixel so the line stays readable where it crosses the dark iris. */
+const SLASH_GRID = [
+  "................",
+  "................",
+  "oo..............",
+  "soo.............",
+  ".soo............",
+  "..soo...........",
+  "...soo..........",
+  "....soo.........",
+  ".....soo........",
+  "......soo.......",
+  ".......soo......",
+  "........soo.....",
+  ".........soo....",
+  "..........soo...",
+  "...........so...",
+  "................",
+];
+
+const EYE_COLORS: Record<string, string> = {
+  o: "#6b403b", // lid / outline
+  w: "#f3e8db", // sclera
+  i: "#4a3826", // iris
+  s: "#e6d9c8", // slash highlight
+};
+
+function gridRects(grid: string[], keyPrefix: string) {
+  return grid.flatMap((row, y) =>
+    row.split("").map((ch, x) =>
+      ch === "." ? null : (
+        <rect key={`${keyPrefix}-${x}-${y}`} x={x} y={y} width={1} height={1} fill={EYE_COLORS[ch]} />
+      ),
+    ),
+  );
+}
+
+function EyeIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 16 16" shapeRendering="crispEdges" style={{ imageRendering: "pixelated" }} aria-hidden>
+      {gridRects(EYE_GRID, "eye")}
+      {open ? gridRects(SLASH_GRID, "slash") : null}
+    </svg>
+  );
+}
+
 export function LoginScreen() {
   const { login, signup } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
@@ -24,6 +87,7 @@ export function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googleNotice, setGoogleNotice] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -54,11 +118,20 @@ export function LoginScreen() {
       <div className="w-full max-w-md relative min-h-dvh flex flex-col items-center justify-center p-6 overflow-hidden">
         {/* Background image -- scoped to this app-width container (not the
             full browser viewport), same as the Friends/Me pages' background
-            image treatment. */}
+            image treatment.
+
+            login-bg.jpg is the supplied "loginbg2.jpg" re-encoded (q=85
+            progressive, same 768x1376 pixels): the original is a 2.1 MB
+            JPEG saved at near-lossless quality, which is a lot to push
+            before a user can even log in. At the ~448px (max-w-md) width
+            this container actually renders it, the two are visually
+            indistinguishable. The unoptimised originals are deliberately not
+            committed (~4 MB of source for one 205 KB asset in use); re-export
+            at this size and quality to swap the art. */}
         <div
           className="absolute inset-0 z-0"
           style={{
-            backgroundImage: "url(/yaarRadar-assets/login.png)",
+            backgroundImage: "url(/yaarRadar-assets/login-bg.jpg)",
             backgroundSize: "cover",
             backgroundPosition: "center",
             backgroundRepeat: "no-repeat",
@@ -168,15 +241,35 @@ export function LoginScreen() {
 
             <label className="flex flex-col gap-1">
               <span className="text-[10px]" style={{ color: "var(--px-muted)" }}>PASSWORD</span>
-              <input
-                className="px-input login-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="********"
-                minLength={6}
-                required
-              />
+              {/* Reveal toggle -- sits inside the field's right edge. The
+                  input keeps its own padding via paddingRight so typed
+                  characters never run underneath the button. */}
+              <div className="relative flex items-center">
+                <input
+                  className="px-input login-input w-full"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="********"
+                  minLength={6}
+                  required
+                  style={{ paddingRight: 42 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  // Not a submit button, and deliberately out of the tab
+                  // order -- tabbing from password should reach the submit
+                  // button, not a decorative toggle.
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  className="absolute right-2 flex items-center justify-center"
+                  style={{ width: 28, height: 28, border: "none", background: "none", padding: 0 }}
+                >
+                  <EyeIcon open={showPassword} />
+                </button>
+              </div>
             </label>
 
             {error && (
