@@ -10,7 +10,8 @@ build-sprites-officer-down.py and build-sprites-officer-updiag.py.
 DOWN_WALK/UP_LEFT_WALK/UP_RIGHT_WALK below are kept only as a record of
 where the original crops lived. (Removing upleft/upright from DIRECTIONS
 doesn't affect the other 5 directions' shared scale below -- confirmed
-neither was the tallest/widest box driving it.)
+neither was the tallest/widest box driving it. Moot now that the scale is
+pinned to FILL_HEIGHT_RATIO rather than auto-fitted, but left as a record.)
 
 This sheet is otherwise clean (unlike hat-girl.png, no merged or
 duplicated frames -- see scratchpad/detect_boxes_officer2.py), but has two
@@ -60,5 +61,25 @@ DIRECTIONS = {
     "right": RIGHT_WALK,
 }
 
+# Pinned rather than left to sprite_pipeline.generate()'s default auto-fit,
+# for the same reason build-sprites-cowboy.py pins its own: officer is split
+# across three source sheets (this one, plus -down and -updiag), each scaled
+# by a separate call, so "fit the tallest frame flush to the cell" does NOT
+# give them a common size -- it gives each sheet its own. This sheet's boxes
+# carry more margin around the character than the other two's, so auto-fit
+# landed it at a 1.0 fill (scale 1.09, i.e. actually upscaling the source)
+# while -down/-updiag sat at 0.846 -- the character visibly grew whenever it
+# turned left/right or onto a front diagonal. Matching their 0.846 fixes
+# that, and dropping below scale 1.0 also clears the LANCZOS ringing halo
+# that upscaling left around the left/right profiles.
+#
+# 0.846 (not the 0.862 that sprites/, sprites-purple/ and sprites-cowboy/
+# share) because it's what -down/-updiag already use: matching them keeps
+# the front-facing pose byte-identical instead of regenerating it. The 1.9%
+# gap to the other characters is below the visible threshold; if officer
+# ever needs to match them exactly, change this and the other two scripts
+# to 0.862 together, never one alone.
+FILL_HEIGHT_RATIO = 0.846
+
 if __name__ == "__main__":
-    generate(SRC, OUT_DIR, DIRECTIONS)
+    generate(SRC, OUT_DIR, DIRECTIONS, fill_height_ratio=FILL_HEIGHT_RATIO)

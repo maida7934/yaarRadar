@@ -14,10 +14,11 @@ row order on a different sheet). Don't "fix" this back.
 Image processing lives in scripts/sprite_pipeline.py (the standard
 chroma-key + spill-suppression pipeline); this file only supplies this
 one sheet's 8 crop boxes. Scaled to a fixed FILL_HEIGHT_RATIO (0.846),
-matching officer-sprite.png's other directions' own fill (see
-build-sprites-officer.py) and build-sprites-officer-down.py's same
-reasoning, so upleft/upright aren't a different size just because they're
-scaled independently off their own source sheet. Run manually
+matching what build-sprites-officer.py and build-sprites-officer-down.py
+now pin, so upleft/upright aren't a different size just because they're
+scaled independently off their own source sheet. (Until 2026-08-22 this
+note claimed 0.846 already matched officer-sprite.png's fill -- it did
+not; that sheet was auto-fitting to 1.0. Keep all three in sync.) Run manually
 (`python scripts/build-sprites-officer-updiag.py`) if this source sheet
 changes.
 """
