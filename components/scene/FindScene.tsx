@@ -19,17 +19,24 @@ import {
   type DirectionalSpriteSet,
 } from "./spriteSets";
 import { NotchedFrame } from "@/components/ui/NotchedFrame";
+import { HOW_TO_USE_TITLE } from "@/lib/howToUse";
+import { HowToUseSteps } from "@/components/ui/HowToUseSteps";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 
 // ── Game world ────────────────────────────────────────────────────────
 // World coordinates are the background image's own native pixel grid --
 // (0,0) is its top-left corner, (WORLD_WIDTH, WORLD_HEIGHT) its
-// bottom-right. WORLD_SCALE is purely a *rendering* multiplier (keeps the
+// bottom-right. WORLD_SCALE_TARGET is purely a *rendering* multiplier (keeps the
 // pixel art crisp/blocky at phone-screen size) and never enters the
 // world-coordinate math itself, so distance/bearing stay scale-independent.
-const WORLD_WIDTH = 1200;
+const WORLD_WIDTH = 1820;
 const WORLD_HEIGHT = 1024;
-const WORLD_SCALE = 1.1;
+// Preferred rendering zoom -- lower shows more of the world ("zoomed out").
+// This is a target, not the value actually rendered at: see `worldScale` in
+// the component, which raises it when a viewport is too tall for it. Sprite
+// size doesn't come from here (SpriteCharacter has its own DISPLAY_SCALE),
+// so tuning this zooms the world without resizing the characters.
+const WORLD_SCALE_TARGET = 0.95;
 // Each world-pixel is this many "meters" for the HUD readout -- tuned so
 // the ~40m default gap between Me and the test friend spawn point (see
 // SPAWN_SCREEN_OFFSET_* below) lands on the same "40m that way" example
@@ -48,11 +55,11 @@ export function FindScene() {
   // World coordinates for both characters -- the only positions distance/
   // bearing are ever computed from. Me spawns near the world's center; the
   // friend spawns SPAWN_SCREEN_OFFSET_* *screen* pixels away at the current
-  // WORLD_SCALE (converted to world-units below) -- expressing the spawn
+  // WORLD_SCALE_TARGET (converted to world-units below) -- expressing the spawn
   // gap in screen pixels, not raw world-units, is what actually guarantees
   // both characters land on-screen together with a visible gap between
-  // them, regardless of how WORLD_SCALE gets tuned later. (A raw world-unit
-  // offset picked without accounting for WORLD_SCALE previously put the
+  // them, regardless of how WORLD_SCALE_TARGET gets tuned later. (A raw world-unit
+  // offset picked without accounting for WORLD_SCALE_TARGET previously put the
   // friend most of a viewport-width off to the side -- clipped out of view
   // by the root's overflow-hidden, which is what read as "no distance
   // between them": only Me, plus a connecting line clipped down to a
@@ -63,8 +70,8 @@ export function FindScene() {
   const meWorldX = useMotionValue(WORLD_WIDTH / 2);
   const meWorldY = useMotionValue(WORLD_HEIGHT / 2);
 
-  const friendWorldX = useMotionValue(WORLD_WIDTH / 2 + SPAWN_SCREEN_OFFSET_X / WORLD_SCALE);
-  const friendWorldY = useMotionValue(WORLD_HEIGHT / 2 + SPAWN_SCREEN_OFFSET_Y / WORLD_SCALE);
+  const friendWorldX = useMotionValue(WORLD_WIDTH / 2 + SPAWN_SCREEN_OFFSET_X / WORLD_SCALE_TARGET);
+  const friendWorldY = useMotionValue(WORLD_HEIGHT / 2 + SPAWN_SCREEN_OFFSET_Y / WORLD_SCALE_TARGET);
 
   // Screen coordinates for rendering -- percent of the game viewport, same
   // API SpriteCharacter/ConnectionLine already expect. Derived each frame
@@ -81,6 +88,20 @@ export function FindScene() {
   // background never scrolls past its own edges.
   const viewportRef = useRef<HTMLDivElement>(null);
   const [viewportSize, setViewportSize] = useState({ width: 360, height: 480 });
+  // The zoom actually rendered at. WORLD_SCALE_TARGET is what we want (tuned
+  // against a phone screen); the two viewport terms are a hard floor, never a
+  // preference. The world layer is a fixed-size div -- WORLD_WIDTH/HEIGHT
+  // multiplied by this -- so if it ever came out smaller than the viewport,
+  // the page's own background would show through as bands past the art's
+  // edge. A 1080px-tall desktop window needs ~1.055 just to stay covered,
+  // which is why the target alone can't be used at every size. On phones both
+  // floor terms sit well under the target, so they never bind and the target
+  // is what's used.
+  const worldScale = Math.max(
+    WORLD_SCALE_TARGET,
+    viewportSize.height / WORLD_HEIGHT,
+    viewportSize.width / WORLD_WIDTH,
+  );
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -111,7 +132,7 @@ export function FindScene() {
   // visually overlap -- Me renders above the friend while true, DOM order
   // decides as before otherwise. World-unit threshold, not meters: it's
   // sized to the sprites' own on-screen width (cellWidth 78 * SpriteCharacter's
-  // DISPLAY_SCALE 1.4 = ~109 screen px, /WORLD_SCALE = ~78 world units for
+  // DISPLAY_SCALE 1.4 = ~109 screen px, /WORLD_SCALE_TARGET = ~78 world units for
   // edge-to-edge; a bit less than that so it kicks in once they actually
   // start overlapping, not just as soon as they touch).
   const SPRITE_OVERLAP_WORLD_UNITS = 55;
@@ -275,7 +296,7 @@ export function FindScene() {
   const [friendPickerOpen, setFriendPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
-  const [activeInfoPanel, setActiveInfoPanel] = useState<null | "terms" | "privacy" | "notifications" | "about">(null);
+  const [activeInfoPanel, setActiveInfoPanel] = useState<null | "howto" | "terms" | "privacy" | "notifications" | "about">(null);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -295,7 +316,15 @@ export function FindScene() {
     setPasswordSuccess(null);
   };
 
-  const INFO_PANELS: Record<"terms" | "privacy" | "notifications" | "about", { title: string; body: string[] }> = {
+  const INFO_PANELS: Record<"howto" | "terms" | "privacy" | "notifications" | "about", { title: string; body: string[] }> = {
+    // Same copy as the popup shown on app open -- both render
+    // <HowToUseSteps/>, which reads lib/howToUse.ts, so they can't drift
+    // apart. `body` is empty because this one panel isn't a list of plain
+    // paragraphs: see the activeInfoPanel branch below.
+    howto: {
+      title: HOW_TO_USE_TITLE,
+      body: [],
+    },
     terms: {
       title: "TERMS AND CONDITIONS",
       body: [
@@ -517,8 +546,8 @@ export function FindScene() {
       cameraFocus.current.x = meWorldX.get();
       cameraFocus.current.y = meWorldY.get();
     }
-    const halfViewWorldW = viewportSize.width / (2 * WORLD_SCALE);
-    const halfViewWorldH = viewportSize.height / (2 * WORLD_SCALE);
+    const halfViewWorldW = viewportSize.width / (2 * worldScale);
+    const halfViewWorldH = viewportSize.height / (2 * worldScale);
     const camX = WORLD_WIDTH <= halfViewWorldW * 2
       ? WORLD_WIDTH / 2
       : clamp(cameraFocus.current.x, halfViewWorldW, WORLD_WIDTH - halfViewWorldW);
@@ -536,8 +565,8 @@ export function FindScene() {
 
     // world -> camera -> screen: position the (oversized) background layer
     // so the camera's current world point lands at the viewport's center.
-    bgTranslateX.set(viewportSize.width / 2 - camX * WORLD_SCALE);
-    bgTranslateY.set(viewportSize.height / 2 - camY * WORLD_SCALE);
+    bgTranslateX.set(viewportSize.width / 2 - camX * worldScale);
+    bgTranslateY.set(viewportSize.height / 2 - camY * worldScale);
 
     // Both sprites use the exact same world->camera->screen conversion,
     // expressed as percent-of-viewport (SpriteCharacter/ConnectionLine's
@@ -545,8 +574,8 @@ export function FindScene() {
     // anymore, it just lands there naturally whenever the camera isn't
     // clamped away from it.
     const toScreenPercent = (worldX: number, worldY: number) => ({
-      x: viewportSize.width > 0 ? ((viewportSize.width / 2 + (worldX - camX) * WORLD_SCALE) / viewportSize.width) * 100 : 50,
-      y: viewportSize.height > 0 ? ((viewportSize.height / 2 + (worldY - camY) * WORLD_SCALE) / viewportSize.height) * 100 : 50,
+      x: viewportSize.width > 0 ? ((viewportSize.width / 2 + (worldX - camX) * worldScale) / viewportSize.width) * 100 : 50,
+      y: viewportSize.height > 0 ? ((viewportSize.height / 2 + (worldY - camY) * worldScale) / viewportSize.height) * 100 : 50,
     });
 
     const mePos = toScreenPercent(meWorldX.get(), meWorldY.get());
@@ -617,18 +646,18 @@ export function FindScene() {
           SELECT FRIEND, TabBar, ...), which all render on top of it at a
           higher z-index further down. The background image itself is
           never stretched (backgroundSize matches its own native aspect
-          ratio, scaled up by WORLD_SCALE only), translated in screen space
+          ratio, scaled by worldScale only), translated in screen space
           so the camera's current world point stays centered on screen. */}
       <motion.div
         className="absolute left-0 top-0 z-0"
         style={{
-          width: WORLD_WIDTH * WORLD_SCALE,
-          height: WORLD_HEIGHT * WORLD_SCALE,
+          width: WORLD_WIDTH * worldScale,
+          height: WORLD_HEIGHT * worldScale,
           backgroundColor: "#3d5c33",
-          backgroundImage: "url(/yaarRadar-assets/bg-test2.jpg)",
+          backgroundImage: "url(/yaarRadar-assets/bg-wide.jpg)",
           backgroundSize: "auto 100%",
           backgroundPosition: "center",
-          backgroundRepeat: "repeat-x",
+          backgroundRepeat: "no-repeat",
           imageRendering: "pixelated",
           x: bgTranslateX,
           y: bgTranslateY,
@@ -742,7 +771,7 @@ export function FindScene() {
         {/* ── Distance readout + heading + settings — distance box and
             welcome box top-align; settings icon vertically centered between
             the two; location toggle below the distance box. ─────────────── */}
-        <div className="flex items-start gap-1.5 px-3 pt-3">
+        <div className="flex items-start gap-1.5 px-3 pt-3 mx-auto w-full max-w-3xl">
           {/* Left column: distance box + location toggle stacked */}
           <div className="flex flex-col gap-1.5 shrink-0">
             {/* Distance/bearing box -- provided pixel-art box asset */}
@@ -757,12 +786,26 @@ export function FindScene() {
                 imageRendering: "pixelated",
               }}
             >
-              <span style={{ fontFamily: "var(--font-pixel)", fontSize: 14, fontWeight: 700, color: "#5a4632" }}>
+              <span style={{ fontFamily: "var(--font-pixel)", fontSize: 14, fontWeight: 700, color: "#5a4632", marginBottom: 1 }}>
                 {Math.round(distance)}M
               </span>
-              <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#5a4632", marginTop: 3, textAlign: "center" }}>
-                {Math.round(bearing)}&deg;<br />BRG
-              </span>
+              <div className="flex items-center gap-1 mt-0.5" style={{ color: "#5a4632" }}>
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  style={{
+                    transform: `rotate(${bearing}deg)`,
+                    transition: "transform 0.2s linear"
+                  }}
+                >
+                  <path d="M12 2L4 14h5v8h6v-8h5L12 2z" />
+                </svg>
+                <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9 }}>
+                  {Math.round(bearing)}&deg;
+                </span>
+              </div>
             </div>
 
             {/* Location toggle box -- provided pixel-art box asset */}
@@ -1095,6 +1138,8 @@ export function FindScene() {
                   {passwordSubmitting ? "..." : "DONE"}
                 </button>
               </div>
+            ) : activeInfoPanel === "howto" ? (
+              <HowToUseSteps />
             ) : activeInfoPanel ? (
               <div className="flex flex-col gap-3">
                 {INFO_PANELS[activeInfoPanel].body.map((paragraph, i) => (
@@ -1107,6 +1152,7 @@ export function FindScene() {
               <>
                 {(
                   [
+                    { label: "HOW TO USE", key: "howto" },
                     { label: "CHANGE PASSWORD", key: null },
                     { label: "TERMS AND CONDITIONS", key: "terms" },
                     { label: "PRIVACY POLICY", key: "privacy" },
