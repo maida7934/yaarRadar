@@ -21,9 +21,14 @@ pixel-identical -- not distinct animation frames, so only the first of each
 is used); row 2 is the same two poses mirrored to face right (confirmed by
 comparing row 2 against a horizontally-flipped row 1 -- much closer than
 comparing it unflipped). No separate walk-cycle frames exist (only the one
-mid-stride pose per direction), so the walk strip repeats that single frame
-4x -- same shape as every other sprite-* walk strip (4 cells, 78x130 each),
-so no frontend code needs to change to accommodate this.
+mid-stride pose per direction) -- pasting that single pose into all 4 walk
+cells unmodified (as build_strip would) plays back as motionless, since
+SpriteCharacter's isMoving branch just steps through 4 identical frames.
+BOB_OFFSETS below fakes a walking bounce instead -- the one pose nudged up
+1-2px on alternating frames -- so isMoving actually reads as walking rather
+than a frozen repeat of the idle-look pose. Still the same shape as every
+other sprite-* walk strip (4 cells, 78x130 each), so no frontend code needs
+to change to accommodate this.
 
 Scaled to build-sprites-officer.py's FILL_HEIGHT_RATIO (0.846) so left/right
 stay the same size as the rest of the officer set -- see that file for why
@@ -35,7 +40,7 @@ source sheet changes.
 import numpy as np
 from PIL import Image
 
-from sprite_pipeline import CELL_H, CELL_W, build_strip, place_in_cell
+from sprite_pipeline import CELL_H, CELL_W, place_in_cell
 
 SRC = "public/yaarRadar-assets/ChatGPT Image Aug 21, 2026, 10_59_07 PM.png"
 OUT_DIR = "public/sprites-officer/"
@@ -46,6 +51,22 @@ RIGHT_IDLE = (243, 575, 348, 862)
 RIGHT_WALK = (523, 575, 667, 859)
 
 FILL_HEIGHT_RATIO = 0.846
+
+# Vertical nudge (px, negative = up) applied to the one walk pose per frame
+# -- a gentle single bob across the loop (up, peak, back down) rather than
+# a real leg-alternating cycle, since none exists in the source art. Small
+# enough to stay inside the headroom already above the character in its
+# cell (character fills ~85% of CELL_H, anchored to the bottom) so nothing
+# clips.
+BOB_OFFSETS = [0, -1, -2, -1]
+
+
+def build_bob_strip(walk_cell):
+    strip = Image.new("RGBA", (CELL_W * len(BOB_OFFSETS), CELL_H), (0, 0, 0, 0))
+    for i, dy in enumerate(BOB_OFFSETS):
+        strip.paste(walk_cell, (i * CELL_W, dy), walk_cell)
+    return strip
+
 
 if __name__ == "__main__":
     img = Image.open(SRC).convert("RGB")
@@ -61,6 +82,7 @@ if __name__ == "__main__":
         ("right", RIGHT_IDLE, RIGHT_WALK),
     ):
         place_in_cell(img, arr_full, idle_box, scale).save(f"{OUT_DIR}chibi-{name}-idle.png")
-        build_strip(img, arr_full, [walk_box] * 4, scale).save(f"{OUT_DIR}chibi-{name}-walk.png")
+        walk_cell = place_in_cell(img, arr_full, walk_box, scale)
+        build_bob_strip(walk_cell).save(f"{OUT_DIR}chibi-{name}-walk.png")
 
     print(f"Wrote left/right to {OUT_DIR}, cell size {CELL_W}x{CELL_H}, scale {scale:.3f}.")
