@@ -70,6 +70,20 @@ const REAL_FOLLOW_LERP = 0.02;
 // reuses the same scale as FACING_DEADZONE_WORLD_UNITS below.
 const REAL_ARRIVED_EPSILON_WORLD_UNITS = 2;
 
+// GET /locations and the Realtime subscription both return whatever's in
+// the `locations` row regardless of whether that person currently has
+// location sharing turned on -- a friend who shared once, then toggled it
+// off (or just closed the app) still has a row sitting there from their
+// last push. Without a freshness check, turning location on immediately
+// treats that stale row as "the friend is right here right now", which is
+// what caused the friend sprite to jump on top of "me" the instant
+// location was enabled, before the friend had done anything. A row is only
+// trusted as "currently live" while its `updated_at` is within this many
+// ms -- comfortably more than LOCATION_PUSH_INTERVAL_MS so normal network/
+// timer jitter doesn't false-positive as "gone stale", but tight enough to
+// notice within a few push cycles once someone actually stops sharing.
+const FRIEND_LOCATION_STALE_MS = LOCATION_PUSH_INTERVAL_MS * 3;
+
 // Real GPS distance is unbounded (a friend could be 2m or 20km away), but
 // the game world is a small fixed canvas -- this caps how far the friend
 // sprite's world-space offset from "me" can grow, so a very distant friend
@@ -502,6 +516,15 @@ export function FindScene() {
   const { coords: myCoords, error: geoError } = useGeolocation(locationEnabled);
   const [friendCoords, setFriendCoords] = useState<Coords | null>(null);
   const [friendLocationError, setFriendLocationError] = useState<string | null>(null);
+  // When the friend's location row was last actually updated (ms since
+  // epoch, from the row's own `updated_at`) -- a ref because it needs to be
+  // read every animation frame for freshness (see FRIEND_LOCATION_STALE_MS)
+  // without waiting on a React re-render.
+  const friendUpdatedAtRef = useRef<number | null>(null);
+  // Render-visible mirror of "is the friend's row still fresh right now",
+  // re-checked on a timer since staleness can newly become true purely from
+  // time passing, with no new event to trigger a re-render on its own.
+  const [friendStale, setFriendStale] = useState(false);
 
   // Push my own coords to the backend on an interval as they come in from
   // watchPosition -- not on every single fix, per CLAUDE.md.
@@ -522,7 +545,9 @@ export function FindScene() {
     queueMicrotask(() => {
       setFriendCoords(null);
       setFriendLocationError(null);
+      setFriendStale(false);
     });
+    friendUpdatedAtRef.current = null;
     if (!locationEnabled || !accessToken || !selectedFriend) return;
 
     let cancelled = false;
@@ -531,7 +556,9 @@ export function FindScene() {
         if (cancelled) return;
         const row = rows[0];
         if (row) {
+          friendUpdatedAtRef.current = new Date(row.updated_at).getTime();
           setFriendCoords({ latitude: row.latitude, longitude: row.longitude });
+          setFriendStale(Date.now() - friendUpdatedAtRef.current > FRIEND_LOCATION_STALE_MS);
         } else {
           setFriendLocationError(`${selectedFriend.username} hasn't shared their location yet.`);
         }
@@ -546,17 +573,30 @@ export function FindScene() {
         "postgres_changes",
         { event: "*", schema: "public", table: "locations", filter: `user_id=eq.${selectedFriend.id}` },
         (payload) => {
-          const row = payload.new as { latitude?: number; longitude?: number } | null;
+          const row = payload.new as { latitude?: number; longitude?: number; updated_at?: string } | null;
           if (row && typeof row.latitude === "number" && typeof row.longitude === "number") {
+            friendUpdatedAtRef.current = row.updated_at ? new Date(row.updated_at).getTime() : Date.now();
             setFriendCoords({ latitude: row.latitude, longitude: row.longitude });
             setFriendLocationError(null);
+            // A push just landed, so this is definitionally fresh -- no
+            // need to wait for the staleness-check interval below to say so.
+            setFriendStale(false);
           }
         },
       )
       .subscribe();
 
+    // Re-checks staleness purely from elapsed time, since a friend closing
+    // the app or toggling location off doesn't itself produce any event --
+    // the row just stops being updated, so this is what actually notices.
+    const staleCheck = setInterval(() => {
+      const updatedAt = friendUpdatedAtRef.current;
+      setFriendStale(updatedAt === null || Date.now() - updatedAt > FRIEND_LOCATION_STALE_MS);
+    }, 2000);
+
     return () => {
       cancelled = true;
+      clearInterval(staleCheck);
       supabase.removeChannel(channel);
     };
   }, [locationEnabled, accessToken, selectedFriend]);
@@ -568,7 +608,10 @@ export function FindScene() {
     myCoords ?? { latitude: 0, longitude: 0 },
     friendCoords ?? { latitude: 0, longitude: 0 },
   );
-  const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords);
+  // Requires the friend's location to be fresh, not just present -- see
+  // FRIEND_LOCATION_STALE_MS -- so a friend who isn't currently sharing
+  // doesn't get treated as "right here" off a leftover row from before.
+  const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords) && !friendStale;
 
   useEffect(() => {
     function updateState() {
@@ -1110,7 +1153,13 @@ export function FindScene() {
                   maxWidth: 104,
                 }}
               >
-                {geoError || friendLocationError || (myCoords ? "Locating friend..." : "Locating you...")}
+                {geoError ||
+                  friendLocationError ||
+                  (!myCoords
+                    ? "Locating you..."
+                    : friendStale
+                      ? `Waiting for ${selectedFriend?.username ?? "your friend"} to turn on location...`
+                      : "Locating friend...")}
               </span>
             )}
           </div>
