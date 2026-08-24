@@ -199,7 +199,7 @@ export function FindScene() {
   const encounterPhaseRef = useRef<EncounterPhase>("none");
   const ENCOUNTER_SLIDE_WORLD_UNITS = 15; // how far down they slide during "settling"
   // Horizontal gap kept between the two sprites for the whole encounter --
-  // the trigger fires at <= 5m apart, which at this world scale puts their
+  // the trigger fires at <= 2m apart, which at this world scale puts their
   // sprite art overlapping, so they're held apart around the trigger
   // midpoint instead of at their literal (too-close) snapshot spots.
   const ENCOUNTER_FACE_GAP_WORLD_UNITS = 100;
@@ -325,7 +325,7 @@ export function FindScene() {
     setEncounterPhase("none");
     setVictoryVisible(false);
     encounterSnapshot.current = null;
-    // Brief cooldown so walking away from 5m doesn't immediately re-trigger.
+    // Brief cooldown so walking away from 2m doesn't immediately re-trigger.
     encounterCooldownRef.current = true;
     setTimeout(() => { encounterCooldownRef.current = false; }, 3000);
   }, []);
@@ -782,8 +782,8 @@ export function FindScene() {
       setDistance((prev) => Math.round(finalDist) !== Math.round(prev) ? finalDist : prev);
       setBearing((prev) => Math.round(finalBrg) !== Math.round(prev) ? finalBrg : prev);
 
-      // ── Encounter trigger: ≤ 5 meters apart ──────────────────────────
-      if (phase === "none" && finalDist <= 5) {
+      // ── Encounter trigger: ≤ 2 meters apart ──────────────────────────
+      if (phase === "none" && finalDist <= 2) {
         startEncounter();
       }
     }
