@@ -4,16 +4,21 @@ actual image processing lives in scripts/sprite_pipeline.py (shared with
 build-sprites-purple.py and build-sprites-hat.py). Run manually
 (`python scripts/build-sprites-officer.py`) if the source sheet changes.
 
-`down`, `upleft`, `upright`, `left`, and `right` are no longer generated
-from this sheet -- each has been superseded by its own standalone
-green-screen sheet, see build-sprites-officer-down.py,
-build-sprites-officer-updiag.py, and build-sprites-officer-leftright.py.
-DOWN_WALK/UP_LEFT_WALK/UP_RIGHT_WALK/LEFT_WALK/RIGHT_WALK below are kept
-only as a record of where the original crops lived. (Removing any of them
-from DIRECTIONS doesn't affect the remaining directions' shared scale
-below -- confirmed none was the tallest/widest box driving it. Moot now
-that the scale is pinned to FILL_HEIGHT_RATIO rather than auto-fitted, but
-left as a record.)
+`down`, `upleft`, and `upright` are no longer generated from this sheet --
+each has been superseded by its own standalone green-screen sheet, see
+build-sprites-officer-down.py and build-sprites-officer-updiag.py.
+DOWN_WALK/UP_LEFT_WALK/UP_RIGHT_WALK below are kept only as a record of
+where the original crops lived. (Removing upleft/upright from DIRECTIONS
+doesn't affect the other directions' shared scale below -- confirmed
+neither was the tallest/widest box driving it. Moot now that the scale is
+pinned to FILL_HEIGHT_RATIO rather than auto-fitted, but left as a record.)
+
+`left` and `right` are no longer generated from this sheet either --
+chibi-{left,right}-{idle,walk}.png are now a straight copy of
+public/sprites-suit/'s (a separately-supplied, already-processed, genuine
+4-frame walk cycle -- no build script needed, there's nothing left to
+process). LEFT_WALK/RIGHT_WALK below are kept only as a record of where
+the original crops lived; don't reintroduce them into DIRECTIONS.
 
 This sheet is otherwise clean (unlike hat-girl.png, no merged or
 duplicated frames -- see scratchpad/detect_boxes_officer2.py), but has two
