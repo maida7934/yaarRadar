@@ -114,30 +114,25 @@ export function LoginScreen() {
   };
 
   return (
-    <div className="flex flex-1 justify-center" style={{ backgroundColor: "var(--px-border)" }}>
+    // The wide art sits on this outer element so it spans the whole
+    // viewport from md up, not just the centred phone column. Below md it's
+    // background-image: none and the colour shows, exactly as before.
+    <div className="flex flex-1 justify-center login-bg-web" style={{ backgroundColor: "var(--px-border)" }}>
       <div className="w-full max-w-md relative min-h-dvh flex flex-col items-center justify-center p-6 overflow-hidden">
-        {/* Background image -- scoped to this app-width container (not the
-            full browser viewport), same as the Friends/Me pages' background
-            image treatment.
+        {/* Phone background -- portrait art, scoped to this app-width
+            container, and switched off from md up where the wide art on the
+            outer element takes over instead. Both live in globals.css
+            (.login-bg-phone / .login-bg-web).
 
-            login-bg.jpg is the supplied "loginbg2.jpg" re-encoded (q=85
-            progressive, same 768x1376 pixels): the original is a 2.1 MB
-            JPEG saved at near-lossless quality, which is a lot to push
-            before a user can even log in. At the ~448px (max-w-md) width
-            this container actually renders it, the two are visually
-            indistinguishable. The unoptimised originals are deliberately not
-            committed (~4 MB of source for one 205 KB asset in use); re-export
-            at this size and quality to swap the art. */}
-        <div
-          className="absolute inset-0 z-0"
-          style={{
-            backgroundImage: "url(/yaarRadar-assets/login-bg.jpg)",
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            backgroundRepeat: "no-repeat",
-          }}
-          aria-hidden
-        />
+            Both files are the supplied art re-encoded at q=85 progressive,
+            same pixel dimensions: login-bg.jpg from loginbg2.jpg (2.1 MB ->
+            205 KB) and login-bg-web.jpg from loginbgweb.jpg (2.8 MB ->
+            253 KB). The originals are near-lossless exports, which is a lot
+            to push before a user can even log in, and at the sizes these
+            actually render the difference isn't visible. The unoptimised
+            originals are deliberately not committed; re-export at these
+            sizes and quality to swap the art. */}
+        <div className="absolute inset-0 z-0 login-bg-phone" aria-hidden />
 
         <div className="relative z-10 w-full flex flex-col items-center gap-6">
           {/* Heading -- decorative pixel-art frame image (flowers/leaves at

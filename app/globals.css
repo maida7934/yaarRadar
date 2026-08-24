@@ -392,3 +392,38 @@ button, a, [role="button"] {
     background-image: url("/yaarRadar-assets/mebg_wide.jpg");
   }
 }
+
+/* ── Login screen background ───────────────────────────────────────────
+   Two different pieces of art, not one image at two sizes: portrait
+   (768x1376) inside the phone-width column on small screens, and a wide
+   landscape room (1584x672) across the whole viewport from md up. The
+   portrait one in a full-width container would have to scale to fill the
+   width and would come out hugely magnified -- the same failure the
+   Friends/Me pages had -- so the two swap rather than stretch.
+
+   Classes rather than Tailwind md: variants because the component used to
+   set background-image inline, and an inline style beats a utility class.
+   Whichever one isn't in play is explicitly background-image: none, so the
+   portrait art can't show through the wide one inside the centre column. */
+.login-bg-phone {
+  background-image: url("/yaarRadar-assets/login-bg.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.login-bg-web {
+  background-image: none;
+}
+
+@media (min-width: 768px) {
+  .login-bg-phone {
+    background-image: none;
+  }
+  .login-bg-web {
+    background-image: url("/yaarRadar-assets/login-bg-web.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+}
