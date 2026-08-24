@@ -479,7 +479,7 @@ export default function MePage() {
                   lineHeight: 1.2,
                 }}
               >
-                {name}☆
+                {name}
               </h2>
 
               <div className="flex items-center gap-2 mt-1 mb-2 opacity-60 w-full max-w-[200px] justify-center">
