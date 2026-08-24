@@ -52,8 +52,23 @@ function clamp(value: number, min: number, max: number) {
 
 // How long to wait between pushing a fresh GPS fix to the backend -- per
 // CLAUDE.md, POST /locations should run on an interval, not on every single
-// watchPosition event.
-const LOCATION_PUSH_INTERVAL_MS = 8000;
+// watchPosition event. Short enough that a friend's Realtime-pushed
+// position doesn't go stale for long (the friend sprite only moves in
+// response to a `friendCoords` update, which happens exactly this often).
+const LOCATION_PUSH_INTERVAL_MS = 5000;
+
+// Per-frame ease-toward-target factor for both real-GPS-driven sprites.
+// Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
+// visibly gliding toward its last-known target for most of the gap between
+// LOCATION_PUSH_INTERVAL_MS updates, instead of snapping there almost
+// instantly and then sitting frozen until the next update arrives -- that
+// snap-then-freeze pattern is what reads as the sprite "getting stuck".
+const REAL_FOLLOW_LERP = 0.02;
+
+// How close (world units) a sprite needs to be to its real-data target
+// before it's considered "arrived" and switches to its idle pose --
+// reuses the same scale as FACING_DEADZONE_WORLD_UNITS below.
+const REAL_ARRIVED_EPSILON_WORLD_UNITS = 2;
 
 // Real GPS distance is unbounded (a friend could be 2m or 20km away), but
 // the game world is a small fixed canvas -- this caps how far the friend
@@ -554,9 +569,6 @@ export function FindScene() {
     friendCoords ?? { latitude: 0, longitude: 0 },
   );
   const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords);
-  // Last real-data-derived target offset, so the friend's per-tick "moving"
-  // state can reflect actual GPS movement instead of always animating.
-  const lastRealOffsetRef = useRef<{ dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     function updateState() {
@@ -641,53 +653,77 @@ export function FindScene() {
     // startEncounter (see encounterTween's onUpdate) -- just skip normal
     // player input, don't fight it by setting positions here too.
     if (phase === "none") {
-      // ── Normal movement ──────────────────────────────────────────────
-      // Move Me (arrow keys), clamped to the world's own bounds -- the
-      // player can walk right up to the edge of the background image, but
-      // never past it.
-      let mx = 0; let my = 0;
-      if (keys["ArrowUp"]) my -= speed;
-      if (keys["ArrowDown"]) my += speed;
-      if (keys["ArrowLeft"]) mx -= speed;
-      if (keys["ArrowRight"]) mx += speed;
-      if (mx !== 0 || my !== 0) {
-        meWorldX.set(clamp(meWorldX.get() + mx, 0, WORLD_WIDTH));
-        meWorldY.set(clamp(meWorldY.get() + my, 0, WORLD_HEIGHT));
-      }
-
-      // Move Friend -- real GPS data when location sharing is on (see the
-      // "Real location tracking" effects above), WASD test control
-      // otherwise. Toggling location swaps which one drives the friend
-      // sprite; it never fights the other.
       if (locationEnabled) {
+        // ── Real-GPS movement ────────────────────────────────────────────
+        // Both sprites walk toward a shared midpoint, closing the real
+        // distance from both sides at once -- "two people ... shown as two
+        // animated sprite characters walking toward each other", not one
+        // fixed anchor with the other doing all the moving. Arrow keys/WASD
+        // are disabled while this is active (see the `else` branch below)
+        // so they can't fight it.
         if (hasRealFix) {
-          const targetOffset = distanceBearingToWorldOffset(
-            realDistanceBearing.distance,
-            realDistanceBearing.bearing,
-          );
-          const targetX = clamp(meWorldX.get() + targetOffset.dx, 0, WORLD_WIDTH);
-          const targetY = clamp(meWorldY.get() + targetOffset.dy, 0, WORLD_HEIGHT);
-          // Ease toward the real-data target instead of snapping -- GPS
-          // fixes/Realtime pushes arrive in discrete jumps, not every frame.
-          const REAL_FOLLOW_LERP = 0.08;
-          friendWorldX.set(friendWorldX.get() + (targetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
-          friendWorldY.set(friendWorldY.get() + (targetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
+          const half = distanceBearingToWorldOffset(realDistanceBearing.distance / 2, realDistanceBearing.bearing);
+          const spawnX = WORLD_WIDTH / 2;
+          const spawnY = WORLD_HEIGHT / 2;
+          const meTargetX = clamp(spawnX - half.dx, 0, WORLD_WIDTH);
+          const meTargetY = clamp(spawnY - half.dy, 0, WORLD_HEIGHT);
+          const friendTargetX = clamp(spawnX + half.dx, 0, WORLD_WIDTH);
+          const friendTargetY = clamp(spawnY + half.dy, 0, WORLD_HEIGHT);
 
-          const last = lastRealOffsetRef.current;
-          const moved = !last || Math.hypot(targetOffset.dx - last.dx, targetOffset.dy - last.dy) > FACING_DEADZONE_WORLD_UNITS;
-          if (moved) {
-            // Friend should face toward "me", i.e. the opposite of their
-            // offset from me.
-            const nextFacing = facingFromVector(-targetOffset.dx, -targetOffset.dy);
-            setFriendState((prev) =>
-              prev.moving && prev.facing === nextFacing ? prev : { moving: true, facing: nextFacing },
-            );
+          // Ease toward each target rather than snapping -- see
+          // REAL_FOLLOW_LERP's comment for why this is deliberately slow.
+          meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * REAL_FOLLOW_LERP);
+          meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * REAL_FOLLOW_LERP);
+          friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
+          friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
+
+          // "moving" reflects whether each sprite is still visibly gliding
+          // toward its current target -- not whether new data just arrived
+          // this frame -- so the walk animation keeps playing for the whole
+          // glide (most of the gap between updates, given how slow
+          // REAL_FOLLOW_LERP is) instead of freezing back to idle the
+          // instant the target stops changing.
+          const meRemainingX = meTargetX - meWorldX.get();
+          const meRemainingY = meTargetY - meWorldY.get();
+          const meRemaining = Math.hypot(meRemainingX, meRemainingY);
+          if (meRemaining > REAL_ARRIVED_EPSILON_WORLD_UNITS) {
+            const nextFacing = facingFromVector(meRemainingX, meRemainingY);
+            setMeState((prev) => (prev.moving && prev.facing === nextFacing ? prev : { moving: true, facing: nextFacing }));
+          } else {
+            setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+          }
+
+          const friendRemainingX = friendTargetX - friendWorldX.get();
+          const friendRemainingY = friendTargetY - friendWorldY.get();
+          const friendRemaining = Math.hypot(friendRemainingX, friendRemainingY);
+          if (friendRemaining > REAL_ARRIVED_EPSILON_WORLD_UNITS) {
+            const nextFacing = facingFromVector(friendRemainingX, friendRemainingY);
+            setFriendState((prev) => (prev.moving && prev.facing === nextFacing ? prev : { moving: true, facing: nextFacing }));
           } else {
             setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
           }
-          lastRealOffsetRef.current = targetOffset;
+        } else {
+          // Waiting on a fix (permission not granted yet, GPS still
+          // resolving, or the friend hasn't shared a location) -- hold both
+          // still and idle rather than leave either stuck mid-walk-cycle.
+          setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+          setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
         }
       } else {
+        // ── Dev/test movement (unchanged) ─────────────────────────────────
+        // Move Me (arrow keys), clamped to the world's own bounds -- the
+        // player can walk right up to the edge of the background image, but
+        // never past it.
+        let mx = 0; let my = 0;
+        if (keys["ArrowUp"]) my -= speed;
+        if (keys["ArrowDown"]) my += speed;
+        if (keys["ArrowLeft"]) mx -= speed;
+        if (keys["ArrowRight"]) mx += speed;
+        if (mx !== 0 || my !== 0) {
+          meWorldX.set(clamp(meWorldX.get() + mx, 0, WORLD_WIDTH));
+          meWorldY.set(clamp(meWorldY.get() + my, 0, WORLD_HEIGHT));
+        }
+
         // Friend (WASD test control) -- same world-bounds clamp.
         let fx = 0; let fy = 0;
         if (keys["w"] || keys["W"]) fy -= speed;
@@ -701,14 +737,25 @@ export function FindScene() {
       }
     }
 
-    // Camera: normally follows Me; during an encounter it instead follows
+    // Camera: in dev/test mode, follows Me alone (unchanged); in real-GPS
+    // mode it follows the pair's midpoint instead -- both sprites now drift
+    // from the world's center independently (see the real-GPS movement
+    // branch above), so anchoring on "me" alone could push a distant friend
+    // off-screen even though their own world-space offset is still capped.
+    // Midpoint framing keeps each sprite within the same capped distance of
+    // screen-center regardless. During an encounter, both are overridden by
     // cameraFocus, which the GSAP tween above pans to the pair's midpoint
     // (see startEncounter) -- either way it's clamped so the viewport
     // never shows past the background image's own edges (the world is
     // larger than the viewport, but not infinite).
     if (phase === "none") {
-      cameraFocus.current.x = meWorldX.get();
-      cameraFocus.current.y = meWorldY.get();
+      if (locationEnabled) {
+        cameraFocus.current.x = (meWorldX.get() + friendWorldX.get()) / 2;
+        cameraFocus.current.y = (meWorldY.get() + friendWorldY.get()) / 2;
+      } else {
+        cameraFocus.current.x = meWorldX.get();
+        cameraFocus.current.y = meWorldY.get();
+      }
     }
     const halfViewWorldW = viewportSize.width / (2 * worldScale);
     const halfViewWorldH = viewportSize.height / (2 * worldScale);
@@ -868,7 +915,7 @@ export function FindScene() {
             lookSway={0}
             isMoving={encounterActive ? false : meState.moving}
             xPercent={meScreenX} yPercent={meScreenY}
-            label="Me (Arrows)"
+            label={locationEnabled ? "Me" : "Me (Arrows)"}
             zIndex={spritesOverlapping ? 2 : undefined}
           />
         )}
@@ -885,7 +932,7 @@ export function FindScene() {
             lookSway={0}
             isMoving={encounterActive ? false : friendState.moving}
             xPercent={friendScreenX} yPercent={friendScreenY}
-            label={selectedFriend?.username ?? "Friend (WASD)"}
+            label={selectedFriend?.username ?? (locationEnabled ? "Friend" : "Friend (WASD)")}
           />
         )}
 
