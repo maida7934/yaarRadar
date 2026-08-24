@@ -4,10 +4,13 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { motion, useMotionValue, useAnimationFrame } from "framer-motion";
 import gsap from "gsap";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
 import { supabase } from "@/lib/supabaseClient";
-import { getFriends, type Friend } from "@/lib/api";
+import { getFriends, pushLocation, getLocations, type Friend } from "@/lib/api";
+import type { Coords } from "@/utils/geo";
 import { ConnectionLine } from "./ConnectionLine";
 import { TabBar } from "./TabBar";
 import { SpriteCharacter } from "./SpriteCharacter";
@@ -45,6 +48,57 @@ const METERS_PER_WORLD_UNIT = 0.47;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+// How long to wait between pushing a fresh GPS fix to the backend -- per
+// CLAUDE.md, POST /locations should run on an interval, not on every single
+// watchPosition event.
+const LOCATION_PUSH_INTERVAL_MS = 8000;
+
+// Real GPS distance is unbounded (a friend could be 2m or 20km away), but
+// the game world is a small fixed canvas -- this caps how far the friend
+// sprite's world-space offset from "me" can grow, so a very distant friend
+// reads as "far, near the edge of the visible world" instead of being
+// placed off it (or clamped to WORLD_WIDTH/HEIGHT's raw edge) entirely.
+// Near real-world distances stay ~linear at METERS_PER_WORLD_UNIT's usual
+// scale (matches the dev-mode spawn gap); the curve only saturates once
+// distance grows large enough to matter.
+const REAL_LOCATION_MAX_WORLD_RADIUS = 480;
+
+function distanceBearingToWorldOffset(distanceMeters: number, bearingDegrees: number) {
+  const unitsPerMeter = 1 / METERS_PER_WORLD_UNIT;
+  const linearRadius = distanceMeters * unitsPerMeter;
+  const radius =
+    REAL_LOCATION_MAX_WORLD_RADIUS * (1 - Math.exp(-linearRadius / REAL_LOCATION_MAX_WORLD_RADIUS));
+  const rad = (bearingDegrees * Math.PI) / 180;
+  // bearing 0 = north = "up" on screen = -Y, matching the existing
+  // atan2(dx, -dy) convention the HUD/encounter code below already uses.
+  return { dx: radius * Math.sin(rad), dy: -radius * Math.cos(rad) };
+}
+
+type Facing = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright";
+
+// Same up/down/left/right(+diagonal) categorization the WASD/arrow-key
+// handlers use, but from a continuous (dx, dy) vector instead of discrete
+// key state -- for deciding which way the friend sprite should face when
+// its position is driven by real GPS data rather than keys. A small
+// deadzone avoids flickering between facings on GPS jitter too small to
+// read as an actual direction change.
+const FACING_DEADZONE_WORLD_UNITS = 2;
+function facingFromVector(dx: number, dy: number): Facing {
+  const up = dy < -FACING_DEADZONE_WORLD_UNITS;
+  const down = dy > FACING_DEADZONE_WORLD_UNITS;
+  const left = dx < -FACING_DEADZONE_WORLD_UNITS;
+  const right = dx > FACING_DEADZONE_WORLD_UNITS;
+  if (up && left) return "upleft";
+  if (up && right) return "upright";
+  if (down && left) return "downleft";
+  if (down && right) return "downright";
+  if (up) return "up";
+  if (down) return "down";
+  if (left) return "left";
+  if (right) return "right";
+  return "down";
 }
 
 export function FindScene() {
@@ -120,8 +174,6 @@ export function FindScene() {
 
   const scaleOne = useMotionValue(1);
 
-  type Facing = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright";
-  
   const [meState, setMeState] = useState<{ moving: boolean; facing: Facing }>({ moving: false, facing: "up" });
   const [friendState, setFriendState] = useState<{ moving: boolean; facing: Facing }>({ moving: false, facing: "down" });
   
@@ -428,6 +480,84 @@ export function FindScene() {
     CHARACTER_SPRITE_BUNDLES[selectedFriend?.character_id ?? DEFAULT_CHARACTER_ID] ??
     CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
+  // ── Real location tracking ─────────────────────────────────────────────
+  // Only watches/pushes/subscribes while the location toggle is on -- when
+  // it's off, "friend" stays under WASD test control exactly as before, so
+  // none of this touches the existing dev/test walk behavior.
+  const { coords: myCoords, error: geoError } = useGeolocation(locationEnabled);
+  const [friendCoords, setFriendCoords] = useState<Coords | null>(null);
+  const [friendLocationError, setFriendLocationError] = useState<string | null>(null);
+
+  // Push my own coords to the backend on an interval as they come in from
+  // watchPosition -- not on every single fix, per CLAUDE.md.
+  const lastPushRef = useRef(0);
+  useEffect(() => {
+    if (!locationEnabled || !accessToken || !myCoords) return;
+    const now = Date.now();
+    if (now - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS) return;
+    lastPushRef.current = now;
+    pushLocation(accessToken, myCoords.latitude, myCoords.longitude).catch(() => {});
+  }, [locationEnabled, accessToken, myCoords]);
+
+  // Fetch the selected friend's last known location, then subscribe to
+  // Supabase Realtime for live updates to just that friend's row -- the one
+  // direct-Supabase piece per CLAUDE.md, RLS-scoped to rows we're allowed to
+  // see (our own, or a confirmed friend's).
+  useEffect(() => {
+    queueMicrotask(() => {
+      setFriendCoords(null);
+      setFriendLocationError(null);
+    });
+    if (!locationEnabled || !accessToken || !selectedFriend) return;
+
+    let cancelled = false;
+    getLocations(accessToken, [selectedFriend.id])
+      .then((rows) => {
+        if (cancelled) return;
+        const row = rows[0];
+        if (row) {
+          setFriendCoords({ latitude: row.latitude, longitude: row.longitude });
+        } else {
+          setFriendLocationError(`${selectedFriend.username} hasn't shared their location yet.`);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFriendLocationError("Could not load that friend's location.");
+      });
+
+    const channel = supabase
+      .channel(`locations-${selectedFriend.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "locations", filter: `user_id=eq.${selectedFriend.id}` },
+        (payload) => {
+          const row = payload.new as { latitude?: number; longitude?: number } | null;
+          if (row && typeof row.latitude === "number" && typeof row.longitude === "number") {
+            setFriendCoords({ latitude: row.latitude, longitude: row.longitude });
+            setFriendLocationError(null);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [locationEnabled, accessToken, selectedFriend]);
+
+  // Real distance/bearing from actual coords -- fed dummy coords when either
+  // side isn't ready yet, but `hasRealFix` gates all actual use of the
+  // result so a stale/placeholder value never reaches the HUD or the scene.
+  const realDistanceBearing = useDistanceBearing(
+    myCoords ?? { latitude: 0, longitude: 0 },
+    friendCoords ?? { latitude: 0, longitude: 0 },
+  );
+  const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords);
+  // Last real-data-derived target offset, so the friend's per-tick "moving"
+  // state can reflect actual GPS movement instead of always animating.
+  const lastRealOffsetRef = useRef<{ dx: number; dy: number } | null>(null);
+
   useEffect(() => {
     function updateState() {
       const keys = keysRef.current;
@@ -525,15 +655,49 @@ export function FindScene() {
         meWorldY.set(clamp(meWorldY.get() + my, 0, WORLD_HEIGHT));
       }
 
-      // Move Friend (WASD test control) -- same world-bounds clamp.
-      let fx = 0; let fy = 0;
-      if (keys["w"] || keys["W"]) fy -= speed;
-      if (keys["s"] || keys["S"]) fy += speed;
-      if (keys["a"] || keys["A"]) fx -= speed;
-      if (keys["d"] || keys["D"]) fx += speed;
-      if (fx !== 0 || fy !== 0) {
-        friendWorldX.set(clamp(friendWorldX.get() + fx, 0, WORLD_WIDTH));
-        friendWorldY.set(clamp(friendWorldY.get() + fy, 0, WORLD_HEIGHT));
+      // Move Friend -- real GPS data when location sharing is on (see the
+      // "Real location tracking" effects above), WASD test control
+      // otherwise. Toggling location swaps which one drives the friend
+      // sprite; it never fights the other.
+      if (locationEnabled) {
+        if (hasRealFix) {
+          const targetOffset = distanceBearingToWorldOffset(
+            realDistanceBearing.distance,
+            realDistanceBearing.bearing,
+          );
+          const targetX = clamp(meWorldX.get() + targetOffset.dx, 0, WORLD_WIDTH);
+          const targetY = clamp(meWorldY.get() + targetOffset.dy, 0, WORLD_HEIGHT);
+          // Ease toward the real-data target instead of snapping -- GPS
+          // fixes/Realtime pushes arrive in discrete jumps, not every frame.
+          const REAL_FOLLOW_LERP = 0.08;
+          friendWorldX.set(friendWorldX.get() + (targetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
+          friendWorldY.set(friendWorldY.get() + (targetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
+
+          const last = lastRealOffsetRef.current;
+          const moved = !last || Math.hypot(targetOffset.dx - last.dx, targetOffset.dy - last.dy) > FACING_DEADZONE_WORLD_UNITS;
+          if (moved) {
+            // Friend should face toward "me", i.e. the opposite of their
+            // offset from me.
+            const nextFacing = facingFromVector(-targetOffset.dx, -targetOffset.dy);
+            setFriendState((prev) =>
+              prev.moving && prev.facing === nextFacing ? prev : { moving: true, facing: nextFacing },
+            );
+          } else {
+            setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+          }
+          lastRealOffsetRef.current = targetOffset;
+        }
+      } else {
+        // Friend (WASD test control) -- same world-bounds clamp.
+        let fx = 0; let fy = 0;
+        if (keys["w"] || keys["W"]) fy -= speed;
+        if (keys["s"] || keys["S"]) fy += speed;
+        if (keys["a"] || keys["A"]) fx -= speed;
+        if (keys["d"] || keys["D"]) fx += speed;
+        if (fx !== 0 || fy !== 0) {
+          friendWorldX.set(clamp(friendWorldX.get() + fx, 0, WORLD_WIDTH));
+          friendWorldY.set(clamp(friendWorldY.get() + fy, 0, WORLD_HEIGHT));
+        }
       }
     }
 
@@ -586,25 +750,42 @@ export function FindScene() {
     friendScreenX.set(friendPos.x);
     friendScreenY.set(friendPos.y);
 
-    // Distance/bearing come from WORLD positions only -- never from the
-    // screen percents above, which shift every time the camera pans.
+    // World positions still drive sprite-overlap stacking regardless of
+    // mode -- purely visual (who renders on top), unrelated to which HUD
+    // number is authoritative below.
     const dx = friendWorldX.get() - meWorldX.get();
     const dy = friendWorldY.get() - meWorldY.get();
-
     const worldDist = Math.sqrt(dx * dx + dy * dy);
-    const dist = worldDist * METERS_PER_WORLD_UNIT;
-    const brg = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
-
-    setDistance((prev) => Math.round(dist) !== Math.round(prev) ? dist : prev);
-    setBearing((prev) => Math.round(brg) !== Math.round(prev) ? brg : prev);
     setSpritesOverlapping((prev) => {
       const next = worldDist < SPRITE_OVERLAP_WORLD_UNITS;
       return prev !== next ? next : prev;
     });
 
-    // ── Encounter trigger: ≤ 5 meters apart ────────────────────────────
-    if (phase === "none" && dist <= 5) {
-      startEncounter();
+    // HUD distance/bearing + the "found each other" trigger: real GPS-
+    // derived values once a fix on both sides exists, the existing WORLD-
+    // position-derived values in dev/test mode (unchanged from before),
+    // and -- deliberately -- neither while location is on but still
+    // waiting for a fix, so a stale/placeholder number never shows.
+    let dist: number | null = null;
+    let brg: number | null = null;
+    if (hasRealFix) {
+      dist = realDistanceBearing.distance;
+      brg = realDistanceBearing.bearing;
+    } else if (!locationEnabled) {
+      dist = worldDist * METERS_PER_WORLD_UNIT;
+      brg = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+    }
+
+    if (dist !== null && brg !== null) {
+      const finalDist = dist;
+      const finalBrg = brg;
+      setDistance((prev) => Math.round(finalDist) !== Math.round(prev) ? finalDist : prev);
+      setBearing((prev) => Math.round(finalBrg) !== Math.round(prev) ? finalBrg : prev);
+
+      // ── Encounter trigger: ≤ 5 meters apart ──────────────────────────
+      if (phase === "none" && finalDist <= 5) {
+        startEncounter();
+      }
     }
   });
 
@@ -866,6 +1047,25 @@ export function FindScene() {
                 />
               </button>
             </div>
+
+            {/* Status line -- only appears while location is on and there's
+                something worth telling the user (permission/GPS trouble,
+                still waiting for a fix, or the friend hasn't shared their
+                location yet); silent once a real fix on both sides lands. */}
+            {locationEnabled && !hasRealFix && (
+              <span
+                className="text-center"
+                style={{
+                  fontFamily: "var(--font-pixel)",
+                  fontSize: 7,
+                  lineHeight: 1.3,
+                  color: geoError || friendLocationError ? "#a33" : "#5a4632",
+                  maxWidth: 104,
+                }}
+              >
+                {geoError || friendLocationError || (myCoords ? "Locating friend..." : "Locating you...")}
+              </span>
+            )}
           </div>
 
           {/* Welcome box — vertically centered relative to the full left column height */}
