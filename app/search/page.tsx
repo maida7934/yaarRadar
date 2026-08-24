@@ -661,7 +661,7 @@ export default function SearchPage() {
               </h3>
 
               <p className="text-xs text-center px-4 mb-1" style={{ color: "#6B4731", fontFamily: "var(--font-pixel)" }}>
-                {viewingUser.bio || "No bio provided"}
+                {viewingUser.bio || "Just here to find my friends."}
               </p>
 
               <div className="flex items-center justify-center gap-3 w-full max-w-[200px] mb-1 opacity-80">

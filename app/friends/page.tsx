@@ -561,7 +561,7 @@ export default function FriendsPage() {
               </h3>
 
               <p className="text-xs text-center px-4 mb-1" style={{ color: "#2c394c" }}>
-                {viewingRequest.bio || "No bio provided"}
+                {viewingRequest.bio || "Just here to find my friends."}
               </p>
 
               {/* Divider */}

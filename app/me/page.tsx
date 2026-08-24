@@ -19,6 +19,7 @@ const BACKGROUND_OPTIONS = [
 type ActiveModal = "profile" | "layout" | null;
 
 const GENDER_OPTIONS = ["Alpha", "Beta", "Other"];
+const DEFAULT_BIO = "Just here to find my friends.";
 
 interface ProfileMetadata {
   gender?: string;
@@ -141,7 +142,7 @@ export default function MePage() {
   const [usernameChangedAt, setUsernameChangedAt] = useState<string | null>(null);
   const name = username ?? "...";
 
-  const [bio, setBio] = useState(metadata.bio ?? "Just here to find my friends.");
+  const [bio, setBio] = useState(metadata.bio ?? DEFAULT_BIO);
   useEffect(() => {
     if (!accessToken) return;
     let cancelled = false;
@@ -155,6 +156,12 @@ export default function MePage() {
           if (profile.bio !== metadata.bio && updateProfile) {
             updateProfile({ bio: profile.bio }).catch(() => { });
           }
+        } else {
+          // Nobody's saved a bio yet -- persist the placeholder for real so
+          // it's what Search/Friends see for this profile too, instead of
+          // just a locally-rendered fallback that only this page knows about.
+          setBio(DEFAULT_BIO);
+          updateMe(accessToken, { bio: DEFAULT_BIO }).catch(() => { });
         }
       })
       .catch(() => {
