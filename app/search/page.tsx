@@ -377,16 +377,7 @@ export default function SearchPage() {
   };
 
   return (
-    <div
-      className="flex flex-1 justify-center"
-      style={{
-        backgroundColor: "#a0b78d",
-        backgroundImage: "url(/yaarRadar-assets/search_bg_wide.jpg)",
-        backgroundSize: "cover",
-        backgroundPosition: "center top",
-        backgroundRepeat: "no-repeat",
-      }}
-    >
+    <div className="flex flex-1 justify-center search-page-bg">
       <div className="w-full relative min-h-dvh flex flex-col pb-[76px] overflow-hidden">
 
         {/* ── HEADER BANNER — same staircase notched-frame heading box as

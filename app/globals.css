@@ -370,6 +370,27 @@ button, a, [role="button"] {
   }
 }
 
+/* ── Search page's outer wrapper ───────────────────────────────────────
+   On phones this is plain green -- the framed .search-panel above already
+   carries its own portrait artwork (search_bg.jpg), so showing the wide
+   landscape background here too just doubled up as visual noise behind
+   the panel and the SEARCH heading. From md up, .search-panel drops its
+   own frame/art (see above), so the wide art moves here instead and
+   becomes the only background on screen -- same swap, opposite element. */
+.search-page-bg {
+  background-color: #a0b78d;
+  background-image: none;
+}
+
+@media (min-width: 768px) {
+  .search-page-bg {
+    background-image: url("/yaarRadar-assets/search_bg_wide.jpg");
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+  }
+}
+
 .page-bg-friends {
   background-image: url("/yaarRadar-assets/friendsbg.jpg");
   background-size: cover;
