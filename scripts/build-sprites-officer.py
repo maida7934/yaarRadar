@@ -4,14 +4,16 @@ actual image processing lives in scripts/sprite_pipeline.py (shared with
 build-sprites-purple.py and build-sprites-hat.py). Run manually
 (`python scripts/build-sprites-officer.py`) if the source sheet changes.
 
-`down`, `upleft`, and `upright` are no longer generated from this sheet --
-each has been superseded by its own standalone green-screen sheet, see
-build-sprites-officer-down.py and build-sprites-officer-updiag.py.
-DOWN_WALK/UP_LEFT_WALK/UP_RIGHT_WALK below are kept only as a record of
-where the original crops lived. (Removing upleft/upright from DIRECTIONS
-doesn't affect the other 5 directions' shared scale below -- confirmed
-neither was the tallest/widest box driving it. Moot now that the scale is
-pinned to FILL_HEIGHT_RATIO rather than auto-fitted, but left as a record.)
+`down`, `upleft`, `upright`, `left`, and `right` are no longer generated
+from this sheet -- each has been superseded by its own standalone
+green-screen sheet, see build-sprites-officer-down.py,
+build-sprites-officer-updiag.py, and build-sprites-officer-leftright.py.
+DOWN_WALK/UP_LEFT_WALK/UP_RIGHT_WALK/LEFT_WALK/RIGHT_WALK below are kept
+only as a record of where the original crops lived. (Removing any of them
+from DIRECTIONS doesn't affect the remaining directions' shared scale
+below -- confirmed none was the tallest/widest box driving it. Moot now
+that the scale is pinned to FILL_HEIGHT_RATIO rather than auto-fitted, but
+left as a record.)
 
 This sheet is otherwise clean (unlike hat-girl.png, no merged or
 duplicated frames -- see scratchpad/detect_boxes_officer2.py), but has two
@@ -56,9 +58,7 @@ UP_RIGHT_WALK = [(559, 718, 612, 828), (649, 718, 703, 827), (744, 718, 797, 827
 DIRECTIONS = {
     "downleft": DOWN_LEFT_WALK,
     "downright": DOWN_RIGHT_WALK,
-    "left": LEFT_WALK,
     "up": UP_WALK,
-    "right": RIGHT_WALK,
 }
 
 # Pinned rather than left to sprite_pipeline.generate()'s default auto-fit,
