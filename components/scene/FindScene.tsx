@@ -70,6 +70,16 @@ const NOTABLE_ACCURACY_METERS = 50;
 // how far past it they actually are.
 const MAX_MEANINGFUL_DISTANCE_METERS = 1500;
 
+// How close (meters) triggers the "found each other" encounter. Consumer
+// phone GPS commonly has 10-40m of real-world error (worse indoors/without
+// a clear sky view), and each person's fix errs independently -- two
+// people standing together can easily show 20-40m apart. A tighter
+// threshold (this used to be 2m) would rarely or never fire on a real
+// phone-to-phone test even when truly together; this is loose enough to
+// actually trigger under normal GPS conditions while still meaning
+// "close", not "same city".
+const ENCOUNTER_TRIGGER_METERS = 15;
+
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
 // visibly gliding toward its last-known target for most of the gap between
@@ -231,9 +241,10 @@ export function FindScene() {
   const encounterPhaseRef = useRef<EncounterPhase>("none");
   const ENCOUNTER_SLIDE_WORLD_UNITS = 15; // how far down they slide during "settling"
   // Horizontal gap kept between the two sprites for the whole encounter --
-  // the trigger fires at <= 2m apart, which at this world scale puts their
-  // sprite art overlapping, so they're held apart around the trigger
-  // midpoint instead of at their literal (too-close) snapshot spots.
+  // the trigger fires at <= ENCOUNTER_TRIGGER_METERS apart, which at this
+  // world scale can put their sprite art overlapping, so they're held apart
+  // around the trigger midpoint instead of at their literal (too-close)
+  // snapshot spots.
   const ENCOUNTER_FACE_GAP_WORLD_UNITS = 100;
   // Snapshot of both world positions when the encounter fires, so the
   // settling slide starts from exactly where they stood when it triggered.
@@ -357,7 +368,8 @@ export function FindScene() {
     setEncounterPhase("none");
     setVictoryVisible(false);
     encounterSnapshot.current = null;
-    // Brief cooldown so walking away from 2m doesn't immediately re-trigger.
+    // Brief cooldown so walking away from ENCOUNTER_TRIGGER_METERS doesn't
+    // immediately re-trigger.
     encounterCooldownRef.current = true;
     setTimeout(() => { encounterCooldownRef.current = false; }, 3000);
   }, []);
@@ -939,8 +951,8 @@ export function FindScene() {
       setDistance((prev) => Math.round(finalDist) !== Math.round(prev) ? finalDist : prev);
       setBearing((prev) => Math.round(finalBrg) !== Math.round(prev) ? finalBrg : prev);
 
-      // ── Encounter trigger: ≤ 2 meters apart ──────────────────────────
-      if (phase === "none" && finalDist <= 2) {
+      // ── Encounter trigger: ≤ ENCOUNTER_TRIGGER_METERS apart ──────────
+      if (phase === "none" && finalDist <= ENCOUNTER_TRIGGER_METERS) {
         startEncounter();
       }
     }
