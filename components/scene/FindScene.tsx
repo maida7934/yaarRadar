@@ -67,8 +67,8 @@ const NOTABLE_ACCURACY_METERS = 50;
 // toward each other" radar visualization to mean anything -- the sprites
 // stop moving and a message explains why, instead of quietly rendering
 // them pinned near the saturated edge of the visible world regardless of
-// whether they're 5km or 5000km apart.
-const MAX_MEANINGFUL_DISTANCE_METERS = 1_500_000; // 1500km
+// how far past it they actually are.
+const MAX_MEANINGFUL_DISTANCE_METERS = 1500;
 
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
@@ -1224,7 +1224,7 @@ export function FindScene() {
                 {geoError ||
                   friendLocationError ||
                   (tooFarApart
-                    ? `You and ${selectedFriend?.username ?? "your friend"} are ${Math.round(realDistanceBearing.distance / 1000).toLocaleString()}km apart -- too far to show.`
+                    ? `You and ${selectedFriend?.username ?? "your friend"} are ${Math.round(realDistanceBearing.distance).toLocaleString()}m apart -- too far to show.`
                     : !myCoords
                       ? "Locating you..."
                       : friendStale
