@@ -10,7 +10,7 @@ import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
 import { supabase } from "@/lib/supabaseClient";
 import { getFriends, pushLocation, getLocations, type Friend } from "@/lib/api";
-import type { Coords } from "@/utils/geo";
+import { haversineDistance, initialBearing, type Coords } from "@/utils/geo";
 import { ConnectionLine } from "./ConnectionLine";
 import { TabBar } from "./TabBar";
 import { SpriteCharacter } from "./SpriteCharacter";
@@ -65,10 +65,11 @@ const LOCATION_PUSH_INTERVAL_MS = 5000;
 // snap-then-freeze pattern is what reads as the sprite "getting stuck".
 const REAL_FOLLOW_LERP = 0.02;
 
-// How close (world units) a sprite needs to be to its real-data target
-// before it's considered "arrived" and switches to its idle pose --
-// reuses the same scale as FACING_DEADZONE_WORLD_UNITS below.
-const REAL_ARRIVED_EPSILON_WORLD_UNITS = 2;
+// Minimum real-world movement (meters) between two accepted GPS fixes
+// before it counts as "this person actually moved" -- below this, treat
+// them as stationary (idle pose, facing held) rather than flipping
+// direction or animating a walk cycle off GPS jitter alone.
+const MIN_MOVEMENT_METERS = 4;
 
 // GET /locations and the Realtime subscription both return whatever's in
 // the `locations` row regardless of whether that person currently has
@@ -107,27 +108,16 @@ function distanceBearingToWorldOffset(distanceMeters: number, bearingDegrees: nu
 
 type Facing = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright";
 
-// Same up/down/left/right(+diagonal) categorization the WASD/arrow-key
-// handlers use, but from a continuous (dx, dy) vector instead of discrete
-// key state -- for deciding which way the friend sprite should face when
-// its position is driven by real GPS data rather than keys. A small
-// deadzone avoids flickering between facings on GPS jitter too small to
-// read as an actual direction change.
-const FACING_DEADZONE_WORLD_UNITS = 2;
-function facingFromVector(dx: number, dy: number): Facing {
-  const up = dy < -FACING_DEADZONE_WORLD_UNITS;
-  const down = dy > FACING_DEADZONE_WORLD_UNITS;
-  const left = dx < -FACING_DEADZONE_WORLD_UNITS;
-  const right = dx > FACING_DEADZONE_WORLD_UNITS;
-  if (up && left) return "upleft";
-  if (up && right) return "upright";
-  if (down && left) return "downleft";
-  if (down && right) return "downright";
-  if (up) return "up";
-  if (down) return "down";
-  if (left) return "left";
-  if (right) return "right";
-  return "down";
+// 8-way bucket a compass heading (degrees, 0 = north, clockwise -- same
+// convention as initialBearing()) into a sprite facing, in the same
+// up=north/-Y screen convention distanceBearingToWorldOffset uses. Real GPS
+// heading is always a definite direction (never an ambiguous zero vector
+// the way an on-screen offset can be near-zero), so this buckets directly
+// off the angle rather than needing a magnitude deadzone.
+const FACINGS_BY_OCTANT: Facing[] = ["up", "upright", "right", "downright", "down", "downleft", "left", "upleft"];
+function headingDegreesToFacing(headingDegrees: number): Facing {
+  const normalized = ((headingDegrees % 360) + 360) % 360;
+  return FACINGS_BY_OCTANT[Math.round(normalized / 45) % 8];
 }
 
 export function FindScene() {
@@ -525,6 +515,19 @@ export function FindScene() {
   // re-checked on a timer since staleness can newly become true purely from
   // time passing, with no new event to trigger a re-render on its own.
   const [friendStale, setFriendStale] = useState(false);
+  // Whether both sprites have already jumped to their correct real-data
+  // position once this "session" (since location was turned on, or since
+  // the selected friend last changed) -- false again after either reset,
+  // so re-enabling/switching snaps fresh instead of gliding from stale
+  // leftover positions. See the snap-vs-ease branch in useAnimationFrame.
+  const hasSnappedToRealRef = useRef(false);
+  // Last real coords each person's heading-of-travel was measured from --
+  // see the heading-of-travel effects below. Separate from the position
+  // model (the shared-midpoint target above): this is purely about which
+  // way each sprite should *face* while it steps, based on that person's
+  // own actual movement, not their bearing relative to the other person.
+  const meLastHeadingCoordsRef = useRef<Coords | null>(null);
+  const friendLastHeadingCoordsRef = useRef<Coords | null>(null);
 
   // Push my own coords to the backend on an interval as they come in from
   // watchPosition -- not on every single fix, per CLAUDE.md.
@@ -548,6 +551,9 @@ export function FindScene() {
       setFriendStale(false);
     });
     friendUpdatedAtRef.current = null;
+    hasSnappedToRealRef.current = false;
+    meLastHeadingCoordsRef.current = null;
+    friendLastHeadingCoordsRef.current = null;
     if (!locationEnabled || !accessToken || !selectedFriend) return;
 
     let cancelled = false;
@@ -612,6 +618,61 @@ export function FindScene() {
   // FRIEND_LOCATION_STALE_MS -- so a friend who isn't currently sharing
   // doesn't get treated as "right here" off a leftover row from before.
   const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords) && !friendStale;
+
+  // ── Heading-of-travel (facing/walk-cycle) ────────────────────────────
+  // Each sprite's facing direction and whether it's playing its walk cycle
+  // come from that person's own real movement between consecutive accepted
+  // GPS fixes -- a compass, not "which way to lean to reach the other
+  // person". Below MIN_MOVEMENT_METERS since the last accepted point, treat
+  // them as stationary (idle, facing held) rather than reacting to GPS
+  // jitter. Runs off myCoords/friendCoords directly (not the animation
+  // frame loop), so it fires exactly once per real update, independent of
+  // how the position-lerp above is easing the sprite there visually.
+  useEffect(() => {
+    if (!locationEnabled || !myCoords) return;
+    const last = meLastHeadingCoordsRef.current;
+    if (!last) {
+      meLastHeadingCoordsRef.current = myCoords;
+      return;
+    }
+    const movedMeters = haversineDistance(last, myCoords);
+    if (movedMeters < MIN_MOVEMENT_METERS) {
+      queueMicrotask(() => setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      return;
+    }
+    const heading = initialBearing(last, myCoords);
+    meLastHeadingCoordsRef.current = myCoords;
+    queueMicrotask(() => setMeState({ moving: true, facing: headingDegreesToFacing(heading) }));
+  }, [locationEnabled, myCoords]);
+
+  useEffect(() => {
+    if (!locationEnabled || !friendCoords) return;
+    const last = friendLastHeadingCoordsRef.current;
+    if (!last) {
+      friendLastHeadingCoordsRef.current = friendCoords;
+      return;
+    }
+    const movedMeters = haversineDistance(last, friendCoords);
+    if (movedMeters < MIN_MOVEMENT_METERS) {
+      queueMicrotask(() => setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      return;
+    }
+    const heading = initialBearing(last, friendCoords);
+    friendLastHeadingCoordsRef.current = friendCoords;
+    queueMicrotask(() => setFriendState({ moving: true, facing: headingDegreesToFacing(heading) }));
+  }, [locationEnabled, friendCoords]);
+
+  // Whenever there's no trustworthy real fix on both sides (still waiting,
+  // the friend's row just went stale, or location got turned off), hold
+  // both idle -- otherwise a walk cycle could keep animating in place with
+  // nothing actually moving.
+  useEffect(() => {
+    if (hasRealFix) return;
+    queueMicrotask(() => {
+      setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+      setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+    });
+  }, [hasRealFix]);
 
   useEffect(() => {
     function updateState() {
@@ -703,7 +764,10 @@ export function FindScene() {
         // animated sprite characters walking toward each other", not one
         // fixed anchor with the other doing all the moving. Arrow keys/WASD
         // are disabled while this is active (see the `else` branch below)
-        // so they can't fight it.
+        // so they can't fight it. Facing/walk-cycle state is handled
+        // separately (see the heading-of-travel effects below) -- purely
+        // each person's own real movement between fixes, not their
+        // position relative to this target.
         if (hasRealFix) {
           const half = distanceBearingToWorldOffset(realDistanceBearing.distance / 2, realDistanceBearing.bearing);
           const spawnX = WORLD_WIDTH / 2;
@@ -713,44 +777,26 @@ export function FindScene() {
           const friendTargetX = clamp(spawnX + half.dx, 0, WORLD_WIDTH);
           const friendTargetY = clamp(spawnY + half.dy, 0, WORLD_HEIGHT);
 
-          // Ease toward each target rather than snapping -- see
-          // REAL_FOLLOW_LERP's comment for why this is deliberately slow.
-          meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * REAL_FOLLOW_LERP);
-          meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * REAL_FOLLOW_LERP);
-          friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
-          friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
-
-          // "moving" reflects whether each sprite is still visibly gliding
-          // toward its current target -- not whether new data just arrived
-          // this frame -- so the walk animation keeps playing for the whole
-          // glide (most of the gap between updates, given how slow
-          // REAL_FOLLOW_LERP is) instead of freezing back to idle the
-          // instant the target stops changing.
-          const meRemainingX = meTargetX - meWorldX.get();
-          const meRemainingY = meTargetY - meWorldY.get();
-          const meRemaining = Math.hypot(meRemainingX, meRemainingY);
-          if (meRemaining > REAL_ARRIVED_EPSILON_WORLD_UNITS) {
-            const nextFacing = facingFromVector(meRemainingX, meRemainingY);
-            setMeState((prev) => (prev.moving && prev.facing === nextFacing ? prev : { moving: true, facing: nextFacing }));
+          if (!hasSnappedToRealRef.current) {
+            // First fix after enabling location (or switching friends):
+            // jump straight there instead of easing from wherever the
+            // sprites happened to be left (dev/test position, a previous
+            // friend's spot, or the initial spawn point) -- that's what
+            // read as the sprites sliding together/apart on toggle-on.
+            // Only real subsequent movement should ever animate.
+            meWorldX.set(meTargetX);
+            meWorldY.set(meTargetY);
+            friendWorldX.set(friendTargetX);
+            friendWorldY.set(friendTargetY);
+            hasSnappedToRealRef.current = true;
           } else {
-            setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+            // Ease toward each target rather than snapping -- see
+            // REAL_FOLLOW_LERP's comment for why this is deliberately slow.
+            meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * REAL_FOLLOW_LERP);
+            meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * REAL_FOLLOW_LERP);
+            friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
+            friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
           }
-
-          const friendRemainingX = friendTargetX - friendWorldX.get();
-          const friendRemainingY = friendTargetY - friendWorldY.get();
-          const friendRemaining = Math.hypot(friendRemainingX, friendRemainingY);
-          if (friendRemaining > REAL_ARRIVED_EPSILON_WORLD_UNITS) {
-            const nextFacing = facingFromVector(friendRemainingX, friendRemainingY);
-            setFriendState((prev) => (prev.moving && prev.facing === nextFacing ? prev : { moving: true, facing: nextFacing }));
-          } else {
-            setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
-          }
-        } else {
-          // Waiting on a fix (permission not granted yet, GPS still
-          // resolving, or the friend hasn't shared a location) -- hold both
-          // still and idle rather than leave either stuck mid-walk-cycle.
-          setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
-          setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
         }
       } else {
         // ── Dev/test movement (unchanged) ─────────────────────────────────
