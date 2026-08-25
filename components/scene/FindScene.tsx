@@ -1233,8 +1233,12 @@ export function FindScene() {
                 {/* Surfaces a coarse fix rather than hiding it -- a desktop/
                     laptop browser (no GPS chip, WiFi/IP-based positioning)
                     routinely can't do better than this, so it's worth
-                    knowing the shown position may be rough. */}
-                {!tooFarApart && myCoords && myAccuracy !== null && myAccuracy > NOTABLE_ACCURACY_METERS && (
+                    knowing the shown position may be rough. Especially
+                    relevant (not hidden) while tooFarApart -- a wildly
+                    coarse fix on either side is exactly what most often
+                    produces an implausible "too far apart" reading between
+                    two devices that are actually side by side. */}
+                {myCoords && myAccuracy !== null && myAccuracy > NOTABLE_ACCURACY_METERS && (
                   <>
                     <br />
                     {`(your GPS accuracy: ~${Math.round(myAccuracy)}m)`}
