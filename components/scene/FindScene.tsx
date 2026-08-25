@@ -80,6 +80,12 @@ const MAX_MEANINGFUL_DISTANCE_METERS = 1500;
 // "close", not "same city".
 const ENCOUNTER_TRIGGER_METERS = 15;
 
+// Persists the location toggle in localStorage so it survives navigating
+// to another page and back, or a full reload -- it should only ever change
+// because the user tapped the toggle themselves, never as a side effect of
+// this component remounting.
+const LOCATION_ENABLED_STORAGE_KEY = "yaarRadar:locationEnabled";
+
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
 // visibly gliding toward its last-known target for most of the gap between
@@ -219,7 +225,25 @@ export function FindScene() {
   const [meState, setMeState] = useState<{ moving: boolean; facing: Facing }>({ moving: false, facing: "up" });
   const [friendState, setFriendState] = useState<{ moving: boolean; facing: Facing }>({ moving: false, facing: "down" });
   
-  const [locationEnabled, setLocationEnabled] = useState(false);
+  const [locationEnabled, setLocationEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(LOCATION_ENABLED_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  // Only reacts to `locationEnabled` changing -- i.e. only ever writes
+  // because setLocationEnabled was called (the toggle button is its only
+  // caller), never because this component happened to mount/remount.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LOCATION_ENABLED_STORAGE_KEY, String(locationEnabled));
+    } catch {
+      // Storage can throw (private browsing, quota) -- the toggle still
+      // works for this session, it just won't survive a reload.
+    }
+  }, [locationEnabled]);
   const [distance, setDistance] = useState(0);
   const [bearing, setBearing] = useState(0);
   // Whether the two sprites are currently close enough on screen to
