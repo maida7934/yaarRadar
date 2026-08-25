@@ -63,6 +63,13 @@ const LOCATION_PUSH_INTERVAL_MS = 5000;
 // about when it's worth telling the user their fix might be rough.
 const NOTABLE_ACCURACY_METERS = 50;
 
+// Beyond this real distance, the pair is too far apart for the "walking
+// toward each other" radar visualization to mean anything -- the sprites
+// stop moving and a message explains why, instead of quietly rendering
+// them pinned near the saturated edge of the visible world regardless of
+// whether they're 5km or 5000km apart.
+const MAX_MEANINGFUL_DISTANCE_METERS = 1_500_000; // 1500km
+
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
 // visibly gliding toward its last-known target for most of the gap between
@@ -624,6 +631,9 @@ export function FindScene() {
   // FRIEND_LOCATION_STALE_MS -- so a friend who isn't currently sharing
   // doesn't get treated as "right here" off a leftover row from before.
   const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords) && !friendStale;
+  // A valid, fresh fix on both sides, but too far apart to visualize
+  // meaningfully -- see MAX_MEANINGFUL_DISTANCE_METERS.
+  const tooFarApart = hasRealFix && realDistanceBearing.distance > MAX_MEANINGFUL_DISTANCE_METERS;
 
   // ── Heading-of-travel (facing/walk-cycle) ────────────────────────────
   // Each sprite's facing direction and whether it's playing its walk cycle
@@ -635,7 +645,7 @@ export function FindScene() {
   // frame loop), so it fires exactly once per real update, independent of
   // how the position-lerp above is easing the sprite there visually.
   useEffect(() => {
-    if (!locationEnabled || !myCoords) return;
+    if (!locationEnabled || !myCoords || tooFarApart) return;
     const last = meLastHeadingCoordsRef.current;
     if (!last) {
       meLastHeadingCoordsRef.current = myCoords;
@@ -649,10 +659,10 @@ export function FindScene() {
     const heading = initialBearing(last, myCoords);
     meLastHeadingCoordsRef.current = myCoords;
     queueMicrotask(() => setMeState({ moving: true, facing: headingDegreesToFacing(heading) }));
-  }, [locationEnabled, myCoords]);
+  }, [locationEnabled, myCoords, tooFarApart]);
 
   useEffect(() => {
-    if (!locationEnabled || !friendCoords) return;
+    if (!locationEnabled || !friendCoords || tooFarApart) return;
     const last = friendLastHeadingCoordsRef.current;
     if (!last) {
       friendLastHeadingCoordsRef.current = friendCoords;
@@ -666,19 +676,20 @@ export function FindScene() {
     const heading = initialBearing(last, friendCoords);
     friendLastHeadingCoordsRef.current = friendCoords;
     queueMicrotask(() => setFriendState({ moving: true, facing: headingDegreesToFacing(heading) }));
-  }, [locationEnabled, friendCoords]);
+  }, [locationEnabled, friendCoords, tooFarApart]);
 
   // Whenever there's no trustworthy real fix on both sides (still waiting,
-  // the friend's row just went stale, or location got turned off), hold
-  // both idle -- otherwise a walk cycle could keep animating in place with
-  // nothing actually moving.
+  // the friend's row just went stale, or location got turned off) -- or
+  // there is one but they're too far apart to visualize -- hold both idle,
+  // otherwise a walk cycle could keep animating in place with nothing
+  // actually moving.
   useEffect(() => {
-    if (hasRealFix) return;
+    if (hasRealFix && !tooFarApart) return;
     queueMicrotask(() => {
       setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
       setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
     });
-  }, [hasRealFix]);
+  }, [hasRealFix, tooFarApart]);
 
   useEffect(() => {
     function updateState() {
@@ -773,8 +784,12 @@ export function FindScene() {
         // so they can't fight it. Facing/walk-cycle state is handled
         // separately (see the heading-of-travel effects below) -- purely
         // each person's own real movement between fixes, not their
-        // position relative to this target.
-        if (hasRealFix) {
+        // position relative to this target. Skipped entirely while too far
+        // apart (see MAX_MEANINGFUL_DISTANCE_METERS) -- neither sprite
+        // moves, and `hasSnappedToRealRef` deliberately stays false so
+        // coming back into range snaps fresh instead of gliding from
+        // wherever they were left.
+        if (hasRealFix && !tooFarApart) {
           const half = distanceBearingToWorldOffset(realDistanceBearing.distance / 2, realDistanceBearing.bearing);
           const spawnX = WORLD_WIDTH / 2;
           const spawnY = WORLD_HEIGHT / 2;
@@ -1192,9 +1207,10 @@ export function FindScene() {
 
             {/* Status line -- only appears while location is on and there's
                 something worth telling the user (permission/GPS trouble,
-                still waiting for a fix, or the friend hasn't shared their
-                location yet); silent once a real fix on both sides lands. */}
-            {locationEnabled && !hasRealFix && (
+                still waiting for a fix, the friend hasn't shared their
+                location yet, or they're too far apart to show); silent
+                once a real, in-range fix on both sides lands. */}
+            {locationEnabled && (!hasRealFix || tooFarApart) && (
               <span
                 className="text-center"
                 style={{
@@ -1207,16 +1223,18 @@ export function FindScene() {
               >
                 {geoError ||
                   friendLocationError ||
-                  (!myCoords
-                    ? "Locating you..."
-                    : friendStale
-                      ? `Waiting for ${selectedFriend?.username ?? "your friend"} to turn on location...`
-                      : "Locating friend...")}
+                  (tooFarApart
+                    ? `You and ${selectedFriend?.username ?? "your friend"} are ${Math.round(realDistanceBearing.distance / 1000).toLocaleString()}km apart -- too far to show.`
+                    : !myCoords
+                      ? "Locating you..."
+                      : friendStale
+                        ? `Waiting for ${selectedFriend?.username ?? "your friend"} to turn on location...`
+                        : "Locating friend...")}
                 {/* Surfaces a coarse fix rather than hiding it -- a desktop/
                     laptop browser (no GPS chip, WiFi/IP-based positioning)
                     routinely can't do better than this, so it's worth
                     knowing the shown position may be rough. */}
-                {myCoords && myAccuracy !== null && myAccuracy > NOTABLE_ACCURACY_METERS && (
+                {!tooFarApart && myCoords && myAccuracy !== null && myAccuracy > NOTABLE_ACCURACY_METERS && (
                   <>
                     <br />
                     {`(your GPS accuracy: ~${Math.round(myAccuracy)}m)`}
