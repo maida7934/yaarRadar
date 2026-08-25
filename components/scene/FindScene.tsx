@@ -254,6 +254,12 @@ export function FindScene() {
   } | null>(null);
   // Cooldown flag: don't re-trigger immediately after dismissing.
   const encounterCooldownRef = useRef(false);
+  // Guards against sending the same "we're close" broadcast every single
+  // frame while finalDist stays under ENCOUNTER_TRIGGER_METERS but the
+  // encounter hasn't actually started yet (the channel round-trip back to
+  // this device, via broadcast self-echo, takes a beat) -- see the synced
+  // encounter-trigger effect below. Reset whenever the encounter ends.
+  const hasSentEncounterBroadcastRef = useRef(false);
   // Victory message fade-in
   const [victoryVisible, setVictoryVisible] = useState(false);
   // Mirrors encounterSnapshot.current.meFacesRight, which sprite selection
@@ -368,6 +374,7 @@ export function FindScene() {
     setEncounterPhase("none");
     setVictoryVisible(false);
     encounterSnapshot.current = null;
+    hasSentEncounterBroadcastRef.current = false;
     // Brief cooldown so walking away from ENCOUNTER_TRIGGER_METERS doesn't
     // immediately re-trigger.
     encounterCooldownRef.current = true;
@@ -631,6 +638,39 @@ export function FindScene() {
       supabase.removeChannel(channel);
     };
   }, [locationEnabled, accessToken, selectedFriend]);
+
+  // ── Synced "found each other" trigger ────────────────────────────────
+  // Each device computes proximity from its own (independently lagged)
+  // view of the other person's position -- purely local threshold checks
+  // can leave one device showing the encounter while the other is still
+  // walking, for as long as it takes fresh location data to reach both
+  // sides. A Supabase Realtime *broadcast* channel (ephemeral pub/sub, no
+  // table/row involved -- separate from the postgres_changes location
+  // subscription above) shared by exactly this pair of users makes the
+  // trigger itself a genuinely shared event: whichever device notices
+  // proximity first sends it, and `self: true` means the sender also
+  // receives its own broadcast, so both devices -- including whichever one
+  // detected it -- go through the exact same `startEncounter()` call via
+  // the handler below, rather than one calling it directly and the other
+  // reacting differently (or not at all).
+  const encounterChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  useEffect(() => {
+    encounterChannelRef.current = null;
+    if (!locationEnabled || !user || !selectedFriend) return;
+
+    // Sorted so both devices join the identical channel name regardless of
+    // which side of the pair they're on.
+    const pairKey = [user.id, selectedFriend.id].sort().join("-");
+    const channel = supabase.channel(`encounter-${pairKey}`, { config: { broadcast: { self: true } } });
+    channel.on("broadcast", { event: "encounter" }, () => startEncounter());
+    channel.subscribe();
+    encounterChannelRef.current = channel;
+
+    return () => {
+      encounterChannelRef.current = null;
+      supabase.removeChannel(channel);
+    };
+  }, [locationEnabled, user, selectedFriend, startEncounter]);
 
   // Real distance/bearing from actual coords -- fed dummy coords when either
   // side isn't ready yet, but `hasRealFix` gates all actual use of the
@@ -953,7 +993,21 @@ export function FindScene() {
 
       // ── Encounter trigger: ≤ ENCOUNTER_TRIGGER_METERS apart ──────────
       if (phase === "none" && finalDist <= ENCOUNTER_TRIGGER_METERS) {
-        startEncounter();
+        if (locationEnabled) {
+          // Real mode: broadcast so both devices enter the encounter
+          // together (see the synced-trigger effect above) instead of
+          // calling startEncounter() directly here -- only send once per
+          // approach, not every frame while still under the threshold and
+          // waiting on the broadcast's own self-echo to actually flip
+          // `phase` away from "none".
+          if (!hasSentEncounterBroadcastRef.current && encounterChannelRef.current) {
+            hasSentEncounterBroadcastRef.current = true;
+            encounterChannelRef.current.send({ type: "broadcast", event: "encounter", payload: {} });
+          }
+        } else {
+          // Dev/test mode: no second device to sync with.
+          startEncounter();
+        }
       }
     }
   });
