@@ -57,6 +57,12 @@ function clamp(value: number, min: number, max: number) {
 // response to a `friendCoords` update, which happens exactly this often).
 const LOCATION_PUSH_INTERVAL_MS = 5000;
 
+// Above this (meters), the status line calls out that "your" GPS accuracy
+// is coarse rather than staying silent about it -- see useGeolocation's own
+// (higher) threshold for what it actually accepts/prefers; this is purely
+// about when it's worth telling the user their fix might be rough.
+const NOTABLE_ACCURACY_METERS = 50;
+
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
 // visibly gliding toward its last-known target for most of the gap between
@@ -503,7 +509,7 @@ export function FindScene() {
   // Only watches/pushes/subscribes while the location toggle is on -- when
   // it's off, "friend" stays under WASD test control exactly as before, so
   // none of this touches the existing dev/test walk behavior.
-  const { coords: myCoords, error: geoError } = useGeolocation(locationEnabled);
+  const { coords: myCoords, error: geoError, accuracy: myAccuracy } = useGeolocation(locationEnabled);
   const [friendCoords, setFriendCoords] = useState<Coords | null>(null);
   const [friendLocationError, setFriendLocationError] = useState<string | null>(null);
   // When the friend's location row was last actually updated (ms since
@@ -1206,6 +1212,16 @@ export function FindScene() {
                     : friendStale
                       ? `Waiting for ${selectedFriend?.username ?? "your friend"} to turn on location...`
                       : "Locating friend...")}
+                {/* Surfaces a coarse fix rather than hiding it -- a desktop/
+                    laptop browser (no GPS chip, WiFi/IP-based positioning)
+                    routinely can't do better than this, so it's worth
+                    knowing the shown position may be rough. */}
+                {myCoords && myAccuracy !== null && myAccuracy > NOTABLE_ACCURACY_METERS && (
+                  <>
+                    <br />
+                    {`(your GPS accuracy: ~${Math.round(myAccuracy)}m)`}
+                  </>
+                )}
               </span>
             )}
           </div>
