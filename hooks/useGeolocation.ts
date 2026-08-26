@@ -83,6 +83,26 @@ export function useGeolocation(enabled: boolean): GeolocationState {
       return;
     }
 
+    // Geolocation is gated on a secure context. Over plain http on a LAN
+    // address -- exactly what you reach for when testing two phones against
+    // one dev server -- the call is refused, and browsers report that
+    // refusal as PERMISSION_DENIED. So the user sees "User denied
+    // Geolocation" having just granted it, and no amount of re-granting
+    // helps because the permission was never the problem. Worse, the
+    // Permissions API can still report "granted" here, so that check can't
+    // catch it either. Caught before the call so the message names the real
+    // cause rather than blaming the user.
+    if (!window.isSecureContext) {
+      queueMicrotask(() =>
+        setError(
+          "Location needs a secure (https) connection. Open the deployed https:// URL " +
+            "instead of an http:// address -- browsers report this as a denial even when " +
+            "you've allowed it.",
+        ),
+      );
+      return;
+    }
+
     watchStartedAtRef.current = Date.now();
     hasAcceptedGoodFixRef.current = false;
 
@@ -111,8 +131,19 @@ export function useGeolocation(enabled: boolean): GeolocationState {
         setError(null);
       },
       (err) => {
-        if (DEBUG_GEO) console.debug(`[useGeolocation] watchPosition error: ${err.message}`);
-        setError(err.message || "Could not get your location.");
+        if (DEBUG_GEO) console.debug(`[useGeolocation] watchPosition error: code=${err.code} ${err.message}`);
+        // The raw message is developer-facing and, for code 1, frequently
+        // wrong about the cause (see the secure-context note above). Map the
+        // codes to something the person holding the phone can act on.
+        setError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location is blocked for this site. Allow it in your browser's site settings, then try again."
+            : err.code === err.POSITION_UNAVAILABLE
+              ? "Your device couldn't get a location fix. Move somewhere with a clearer view of the sky and try again."
+              : err.code === err.TIMEOUT
+                ? "Taking longer than usual to get a fix -- still trying."
+                : err.message || "Could not get your location.",
+        );
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
