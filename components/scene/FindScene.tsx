@@ -68,7 +68,22 @@ const NOTABLE_ACCURACY_METERS = 50;
 // stop moving and a message explains why, instead of quietly rendering
 // them pinned near the saturated edge of the visible world regardless of
 // how far past it they actually are.
-const MAX_MEANINGFUL_DISTANCE_METERS = 1500;
+//
+// 1000m is roughly a 12-minute walk, and about where a straight-line
+// bearing stops being something you can act on: past a kilometre, streets
+// and buildings decide your route far more than the direction does, so
+// pointing an arrow across them is closer to misleading than useful. This
+// is a proximity radar ("they're 40m that way" -- CLAUDE.md), not
+// navigation, and the cutoff should reflect that.
+//
+// Note this interacts with useGeolocation's grace-period fallback, which
+// accepts a coarse fix (a desktop browser with no GPS chip can report
+// kilometre-scale accuracy) rather than leaving the UI stuck. A coarse fix
+// on either side can push a pair that's actually close over this line, and
+// a lower cutoff makes that misfire more reachable -- which is exactly why
+// the accuracy caveat stays visible while tooFarApart rather than being
+// hidden behind the message.
+const MAX_MEANINGFUL_DISTANCE_METERS = 1000;
 
 // How close (meters) triggers the "found each other" encounter. Consumer
 // phone GPS commonly has 10-40m of real-world error (worse indoors/without
@@ -585,16 +600,42 @@ export function FindScene() {
   const meLastHeadingCoordsRef = useRef<Coords | null>(null);
   const friendLastHeadingCoordsRef = useRef<Coords | null>(null);
 
-  // Push my own coords to the backend on an interval as they come in from
-  // watchPosition -- not on every single fix, per CLAUDE.md.
-  const lastPushRef = useRef(0);
+  // Push my own coords to the backend on an interval -- not on every single
+  // fix, per CLAUDE.md.
+  //
+  // Driven by a timer reading the latest coords, rather than by `myCoords`
+  // changing. Those aren't equivalent: a fix arriving inside the throttle
+  // window used to be dropped outright with nothing scheduled to send it,
+  // so if updates then stopped, that position never reached the server at
+  // all. Worse, watchPosition can go quiet entirely once someone stands
+  // still -- no new fixes, so no pushes, so `updated_at` stops advancing
+  // and the other device marks them stale (FRIEND_LOCATION_STALE_MS) while
+  // they're standing right there waiting to meet. Re-pushing the last known
+  // position on a timer is what keeps a stationary user readable as live;
+  // POST /locations is an upsert, so a repeat costs one row write.
+  const myCoordsRef = useRef<Coords | null>(null);
+  // Synced in an effect, not assigned during render -- refs are off limits
+  // there. The interval below ticks every second, so it always reads a
+  // value at most one tick behind the newest fix.
   useEffect(() => {
-    if (!locationEnabled || !accessToken || !myCoords) return;
-    const now = Date.now();
-    if (now - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS) return;
-    lastPushRef.current = now;
-    pushLocation(accessToken, myCoords.latitude, myCoords.longitude).catch(() => {});
-  }, [locationEnabled, accessToken, myCoords]);
+    myCoordsRef.current = myCoords;
+  }, [myCoords]);
+  useEffect(() => {
+    if (!locationEnabled || !accessToken) return;
+    let lastPushedAt = 0;
+    const maybePush = () => {
+      const coords = myCoordsRef.current;
+      if (!coords) return; // no fix yet -- nothing to send
+      if (Date.now() - lastPushedAt < LOCATION_PUSH_INTERVAL_MS) return;
+      lastPushedAt = Date.now();
+      pushLocation(accessToken, coords.latitude, coords.longitude).catch(() => {});
+    };
+    // Ticks faster than the push interval so the *first* fix goes out
+    // promptly rather than waiting a whole interval; maybePush itself is
+    // what enforces the actual cadence.
+    const id = setInterval(maybePush, 1000);
+    return () => clearInterval(id);
+  }, [locationEnabled, accessToken]);
 
   // Fetch the selected friend's last known location, then subscribe to
   // Supabase Realtime for live updates to just that friend's row -- the one

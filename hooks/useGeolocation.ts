@@ -30,11 +30,13 @@ const MAX_ACCEPTABLE_ACCURACY_METERS = 100;
 // blip mixed into an otherwise good stream.
 const ACCURACY_GRACE_PERIOD_MS = 15000;
 
-// Logs every raw fix's accuracy and accept/reject verdict to the console --
-// deliberately not gated behind NODE_ENV, since the thing being debugged is
-// real-device GPS behavior on a deployed build, not local dev. Flip to
-// false once this is no longer being actively debugged.
-const DEBUG_GEO = true;
+// Logs every raw fix's accuracy and accept/reject verdict to the console.
+// Deliberately not gated behind NODE_ENV, since the thing being debugged is
+// real-device GPS behavior on a deployed build, not local dev -- which is
+// also why it stays off by default: the log line includes the user's exact
+// latitude/longitude, and that shouldn't be sitting in the console of a
+// shipped build. Flip to true while actively debugging a device, then back.
+const DEBUG_GEO = false;
 
 export interface GeolocationState {
   coords: Coords | null;
