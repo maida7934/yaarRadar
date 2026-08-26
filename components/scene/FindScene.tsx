@@ -5,6 +5,8 @@ import { motion, useMotionValue, useAnimationFrame } from "framer-motion";
 import gsap from "gsap";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { useGeolocation } from "@/hooks/useGeolocation";
+import { useGeolocationPermission } from "@/hooks/useGeolocationPermission";
+import { LocationPrimer } from "@/components/ui/LocationPrimer";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
@@ -100,6 +102,9 @@ const ENCOUNTER_TRIGGER_METERS = 15;
 // because the user tapped the toggle themselves, never as a side effect of
 // this component remounting.
 const LOCATION_ENABLED_STORAGE_KEY = "yaarRadar:locationEnabled";
+// Separate from the toggle: remembers that the up-front explainer has been
+// answered, so declining it once doesn't mean being asked again every visit.
+const LOCATION_PRIMER_STORAGE_KEY = "yaarRadar:locationPrimerSeen";
 
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
@@ -599,6 +604,37 @@ export function FindScene() {
   // it's off, "friend" stays under WASD test control exactly as before, so
   // none of this touches the existing dev/test walk behavior.
   const { coords: myCoords, error: geoError, accuracy: myAccuracy } = useGeolocation(locationEnabled);
+  const locationPermission = useGeolocationPermission();
+
+  // Ask up front rather than leaving the browser prompt to whenever someone
+  // happens to hit the toggle. Only when the permission is still "prompt":
+  // if it's already granted there's nothing to ask, and if it's "denied" the
+  // browser won't show a prompt no matter what we do -- the toggle area
+  // explains how to undo that instead. Dismissing is remembered so this
+  // isn't nagging on every visit; the toggle is always still there.
+  const [primerDismissed, setPrimerDismissed] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(LOCATION_PRIMER_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const dismissPrimer = () => {
+    setPrimerDismissed(true);
+    try {
+      window.localStorage.setItem(LOCATION_PRIMER_STORAGE_KEY, "true");
+    } catch {
+      // Storage blocked -- it just means the primer may reappear next visit.
+    }
+  };
+  const showLocationPrimer =
+    !locationEnabled && !primerDismissed && locationPermission === "prompt";
+
+  // Denied is a dead end from the page's side: the browser stops prompting
+  // and every request fails instantly, so retrying can't help. Say what to
+  // actually do instead of echoing "User denied Geolocation".
+  const locationBlocked = locationPermission === "denied";
   const [friendCoords, setFriendCoords] = useState<Coords | null>(null);
   const [friendLocationError, setFriendLocationError] = useState<string | null>(null);
   // When the friend's location row was last actually updated (ms since
@@ -1416,18 +1452,20 @@ export function FindScene() {
                 still waiting for a fix, the friend hasn't shared their
                 location yet, or they're too far apart to show); silent
                 once a real, in-range fix on both sides lands. */}
-            {locationEnabled && (!hasRealFix || tooFarApart) && (
+            {(locationBlocked || (locationEnabled && (!hasRealFix || tooFarApart))) && (
               <span
                 className="text-center"
                 style={{
                   fontFamily: "var(--font-pixel)",
                   fontSize: 7,
                   lineHeight: 1.3,
-                  color: geoError || friendLocationError ? "#a33" : "#5a4632",
+                  color: locationBlocked || geoError || friendLocationError ? "#a33" : "#5a4632",
                   maxWidth: 104,
                 }}
               >
-                {geoError ||
+                {(locationBlocked
+                  ? "Location is blocked for this site. Turn it back on in your browser's site settings, then try again."
+                  : geoError) ||
                   friendLocationError ||
                   (tooFarApart
                     ? `You and ${selectedFriend?.username ?? "your friend"} are ${Math.round(realDistanceBearing.distance).toLocaleString()}m apart -- too far to show.`
@@ -1609,6 +1647,19 @@ export function FindScene() {
 
       {/* ── Settings side drawer — slides in from the right, covering
           ~65% of the screen width (roughly "one and a half quarters"). ── */}
+      {showLocationPrimer && (
+        <LocationPrimer
+          onEnable={() => {
+            dismissPrimer();
+            // Flipping the toggle is what mounts the watch, which is what
+            // actually raises the browser prompt -- from inside this tap,
+            // so it counts as a user gesture.
+            setLocationEnabled(true);
+          }}
+          onDismiss={dismissPrimer}
+        />
+      )}
+
       {settingsOpen && (
         <div className="absolute inset-0 z-50 flex justify-end" onClick={closeSettings}>
           <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.55)" }} />
