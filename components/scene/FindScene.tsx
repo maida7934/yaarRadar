@@ -107,13 +107,28 @@ const LOCATION_ENABLED_STORAGE_KEY = "yaarRadar:locationEnabled";
 // reads the same flag to decide whether the location question was already
 // answered in an earlier session, so there can only be one copy of the key.
 
-// Per-frame ease-toward-target factor for both real-GPS-driven sprites.
-// Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
-// visibly gliding toward its last-known target for most of the gap between
-// LOCATION_PUSH_INTERVAL_MS updates, instead of snapping there almost
-// instantly and then sitting frozen until the next update arrives -- that
-// snap-then-freeze pattern is what reads as the sprite "getting stuck".
-const REAL_FOLLOW_LERP = 0.02;
+// Time constant (ms) for easing each real-GPS sprite toward its target:
+// roughly how long it takes to cover 63% of the remaining gap.
+//
+// Applied against the frame delta rather than per-frame. The old per-frame
+// factor meant the same code settled in ~1.7s at 30fps, ~0.8s at 60 and
+// ~0.4s at 120 -- so how fast a sprite moved depended on the phone, and
+// dropped frames visibly changed its speed mid-walk. Exponential smoothing
+// against elapsed time is identical on every device and immune to jank.
+//
+// Short enough to actually track the wearer: at ~700ms a sprite is within a
+// few percent of the reported position well before the next push arrives,
+// instead of spending most of the interval somewhere the person isn't.
+const REAL_FOLLOW_TIME_CONSTANT_MS = 700;
+
+// How long a sprite keeps playing its walk cycle after the last qualifying
+// movement. Walking produces plenty of fixes that fall under
+// MIN_MOVEMENT_METERS -- at ~1.4 m/s with fixes about a second apart, most
+// of them do -- and treating each of those as "stopped" made the animation
+// cut out between qualifying fixes rather than running continuously. Held
+// for a beat instead, so it reads as one walk rather than a stutter, and
+// still settles to idle shortly after someone genuinely stops.
+const MOVEMENT_HOLD_MS = 4000;
 
 // Minimum real-world movement (meters) between two accepted GPS fixes
 // before it counts as "this person actually moved" -- below this, treat
@@ -681,6 +696,11 @@ export function FindScene() {
   // own actual movement, not their bearing relative to the other person.
   const meLastHeadingCoordsRef = useRef<Coords | null>(null);
   const friendLastHeadingCoordsRef = useRef<Coords | null>(null);
+  // Timestamps until which each sprite keeps its walk cycle running -- see
+  // MOVEMENT_HOLD_MS. Refs, not state: they're written from the same effects
+  // that set the pose and shouldn't themselves cause a render.
+  const meMovingUntilRef = useRef(0);
+  const friendMovingUntilRef = useRef(0);
 
   // Push my own coords to the backend on an interval -- not on every single
   // fix, per CLAUDE.md.
@@ -903,11 +923,17 @@ export function FindScene() {
     }
     const movedMeters = haversineDistance(last, myCoords);
     if (movedMeters < MIN_MOVEMENT_METERS) {
-      queueMicrotask(() => setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      // Under the threshold isn't the same as stopped: while walking, most
+      // fixes land here. Only drop out of the walk cycle once nothing has
+      // qualified for a while, otherwise the animation cuts in and out.
+      if (Date.now() >= meMovingUntilRef.current) {
+        queueMicrotask(() => setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      }
       return;
     }
     const heading = initialBearing(last, myCoords);
     meLastHeadingCoordsRef.current = myCoords;
+    meMovingUntilRef.current = Date.now() + MOVEMENT_HOLD_MS;
     queueMicrotask(() => setMeState({ moving: true, facing: headingDegreesToFacing(heading) }));
   }, [locationEnabled, myCoords, tooFarApart]);
 
@@ -920,13 +946,34 @@ export function FindScene() {
     }
     const movedMeters = haversineDistance(last, friendCoords);
     if (movedMeters < MIN_MOVEMENT_METERS) {
-      queueMicrotask(() => setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      if (Date.now() >= friendMovingUntilRef.current) {
+        queueMicrotask(() => setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      }
       return;
     }
     const heading = initialBearing(last, friendCoords);
     friendLastHeadingCoordsRef.current = friendCoords;
+    friendMovingUntilRef.current = Date.now() + MOVEMENT_HOLD_MS;
     queueMicrotask(() => setFriendState({ moving: true, facing: headingDegreesToFacing(heading) }));
   }, [locationEnabled, friendCoords, tooFarApart]);
+
+  // The hold above is cleared by the next sub-threshold fix -- but if
+  // someone stops dead, watchPosition can simply stop reporting, and with no
+  // further fix nothing would ever run that check. Then the sprite keeps
+  // walking on the spot indefinitely. This expires the hold on its own.
+  useEffect(() => {
+    if (!locationEnabled) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      if (now >= meMovingUntilRef.current) {
+        setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+      }
+      if (now >= friendMovingUntilRef.current) {
+        setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [locationEnabled]);
 
   // Whenever there's no trustworthy real fix on both sides (still waiting,
   // the friend's row just went stale, or location got turned off) -- or
@@ -1061,12 +1108,14 @@ export function FindScene() {
             friendWorldY.set(friendTargetY);
             hasSnappedToRealRef.current = true;
           } else {
-            // Ease toward each target rather than snapping -- see
-            // REAL_FOLLOW_LERP's comment for why this is deliberately slow.
-            meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * REAL_FOLLOW_LERP);
-            meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * REAL_FOLLOW_LERP);
-            friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
-            friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
+            // Ease toward each target rather than snapping. The factor is
+            // derived from the frame delta, so the motion is the same on a
+            // 30, 60 or 120Hz screen -- see REAL_FOLLOW_TIME_CONSTANT_MS.
+            const follow = 1 - Math.exp(-delta / REAL_FOLLOW_TIME_CONSTANT_MS);
+            meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * follow);
+            meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * follow);
+            friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * follow);
+            friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * follow);
           }
         }
       } else {
