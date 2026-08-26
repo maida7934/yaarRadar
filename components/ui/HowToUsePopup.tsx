@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { NotchedFrame } from "@/components/ui/NotchedFrame";
 import { HowToUseSteps } from "@/components/ui/HowToUseSteps";
 import { HOW_TO_USE_TITLE } from "@/lib/howToUse";
+import { useLocationGate } from "@/lib/locationGate";
 
 /** sessionStorage, not localStorage, on purpose: "shows when the app
  * opens" should mean once per app launch, not once per browser forever.
@@ -33,19 +34,29 @@ export function HowToUsePopup() {
   // mismatch, and reading storage up front avoids a frame where the popup
   // is mounted-but-closed (which an effect + setState would cause, and
   // which the cascading-renders lint rule flags).
-  const [open, setOpen] = useState(() => {
+  // Queued behind the location prompt rather than racing it -- two
+  // interruptions arriving together means neither gets read. `settled` flips
+  // once the user has answered the browser prompt (either way), declined the
+  // primer, or landed on a browser where the answer can't be observed.
+  const { settled } = useLocationGate();
+
+  const [dismissed, setDismissed] = useState(() => {
     // Guarded anyway: sessionStorage is absent on the server and throws
     // outright in private mode or when site data is blocked.
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") return true;
     try {
-      return window.sessionStorage.getItem(SEEN_KEY) !== "1";
+      return window.sessionStorage.getItem(SEEN_KEY) === "1";
     } catch {
-      return true; // Storage unavailable -- show it rather than suppress it.
+      return false; // Storage unavailable -- show it rather than suppress it.
     }
   });
 
+  // Two conditions, not one: it has to be this session's first showing AND
+  // the location question has to be out of the way.
+  const open = !dismissed && settled;
+
   const close = () => {
-    setOpen(false);
+    setDismissed(true);
     try {
       window.sessionStorage.setItem(SEEN_KEY, "1");
     } catch {

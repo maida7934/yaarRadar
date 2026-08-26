@@ -7,6 +7,7 @@ import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useGeolocationPermission } from "@/hooks/useGeolocationPermission";
 import { LocationPrimer } from "@/components/ui/LocationPrimer";
+import { useLocationGate } from "@/lib/locationGate";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
@@ -603,7 +604,14 @@ export function FindScene() {
   // Only watches/pushes/subscribes while the location toggle is on -- when
   // it's off, "friend" stays under WASD test control exactly as before, so
   // none of this touches the existing dev/test walk behavior.
+  const { markSettled: markLocationSettled } = useLocationGate();
   const { coords: myCoords, error: geoError, accuracy: myAccuracy } = useGeolocation(locationEnabled);
+  // Where the Permissions API isn't available, a fix or an error is the only
+  // evidence the prompt was answered. Harmless elsewhere -- by the time
+  // either arrives the permission has resolved and this is a no-op.
+  useEffect(() => {
+    if (myCoords || geoError) markLocationSettled();
+  }, [myCoords, geoError, markLocationSettled]);
   const locationPermission = useGeolocationPermission();
 
   // Ask up front rather than leaving the browser prompt to whenever someone
@@ -1656,7 +1664,13 @@ export function FindScene() {
             // so it counts as a user gesture.
             setLocationEnabled(true);
           }}
-          onDismiss={dismissPrimer}
+          onDismiss={() => {
+            dismissPrimer();
+            // Declining means no browser prompt is coming, so the permission
+            // state will sit on "prompt" indefinitely -- say so explicitly
+            // or anything queued behind it waits forever.
+            markLocationSettled();
+          }}
         />
       )}
 

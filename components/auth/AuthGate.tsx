@@ -7,6 +7,7 @@ import { LoginScreen } from "./LoginScreen";
 import { UsernameSetup } from "./UsernameSetup";
 import { HowToUsePopup } from "@/components/ui/HowToUsePopup";
 import { getMe } from "@/lib/api";
+import { LocationGateProvider } from "@/lib/locationGate";
 
 /** Reachable without a session. The password-recovery link arrives before
  * supabase-js has exchanged its fragment for one, so gating this route on
@@ -83,10 +84,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // HowToUsePopup lives here rather than in a page so it survives tab
   // navigation (this layout persists across route changes) and only ever
   // mounts once the user is actually logged in.
+  //
+  // The provider wraps both halves on purpose: the location question is
+  // raised down in the Find scene (inside `children`) while the popup that
+  // waits on it lives out here, so they need a shared place to meet.
   return (
-    <>
+    <LocationGateProvider>
       {children}
       <HowToUsePopup />
-    </>
+    </LocationGateProvider>
   );
 }
