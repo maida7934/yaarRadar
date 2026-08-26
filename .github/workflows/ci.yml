@@ -18,7 +18,7 @@ on:
 
 jobs:
   verify:
-    name: Lint, test, build
+    name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
 
     # The build prerenders every route, and lib/supabaseClient.ts throws at
@@ -49,15 +49,26 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `next typegen` first, then tsc. Next writes globals its own files
+      # rely on -- LayoutProps, PageProps and friends -- into .next, and
+      # next-env.d.ts imports them; on a fresh checkout none of that exists
+      # yet, so a bare `tsc --noEmit` can fail on code that is perfectly
+      # valid. typegen produces exactly those definitions without paying for
+      # a full build, so the check runs early and its failures point at types
+      # rather than being buried in build output.
+      #
+      # (An earlier version of this file dropped the step altogether, on the
+      # since-disproved belief that only `next dev` could generate them.)
+      - name: Typecheck
+        run: |
+          npx next typegen
+          npx tsc --noEmit
+
       - name: Test
         run: npm test
 
-      # Type checking happens here, not as a separate `tsc --noEmit` step.
-      # next-env.d.ts imports ./.next/dev/types/*.d.ts, which only `next dev`
-      # writes -- so on a fresh checkout a standalone tsc can't resolve the
-      # globals Next generates (LayoutProps, PageProps) and fails on code
-      # that is perfectly valid. `next build` generates what it needs and
-      # runs TypeScript itself, so type errors still fail the pipeline; they
-      # just surface here rather than in a step that can't work in CI.
-      - name: Build (includes type checking)
+      # Compiles and type-checks in its own right, so it backstops the step
+      # above -- and it's the only step that exercises prerendering, which is
+      # where a missing env var or a bad server/client boundary surfaces.
+      - name: Build
         run: npm run build
