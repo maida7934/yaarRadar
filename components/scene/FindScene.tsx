@@ -7,7 +7,7 @@ import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useGeolocationPermission } from "@/hooks/useGeolocationPermission";
 import { LocationPrimer } from "@/components/ui/LocationPrimer";
-import { useLocationGate } from "@/lib/locationGate";
+import { LOCATION_PRIMER_STORAGE_KEY, useLocationGate } from "@/lib/locationGate";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
@@ -103,9 +103,9 @@ const ENCOUNTER_TRIGGER_METERS = 15;
 // because the user tapped the toggle themselves, never as a side effect of
 // this component remounting.
 const LOCATION_ENABLED_STORAGE_KEY = "yaarRadar:locationEnabled";
-// Separate from the toggle: remembers that the up-front explainer has been
-// answered, so declining it once doesn't mean being asked again every visit.
-const LOCATION_PRIMER_STORAGE_KEY = "yaarRadar:locationPrimerSeen";
+// LOCATION_PRIMER_STORAGE_KEY is defined in lib/locationGate.tsx -- the gate
+// reads the same flag to decide whether the location question was already
+// answered in an earlier session, so there can only be one copy of the key.
 
 // Per-frame ease-toward-target factor for both real-GPS-driven sprites.
 // Deliberately slow (settles over ~3s, not ~1s) so each sprite is still

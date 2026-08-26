@@ -16,6 +16,11 @@ interface LocationGateValue {
 
 const LocationGateContext = createContext<LocationGateValue | null>(null);
 
+/** Remembers that the up-front location explainer has been answered. Owned
+ * here rather than by the component that renders it, because the gate has to
+ * read it too -- see the deadlock note in the provider. */
+export const LOCATION_PRIMER_STORAGE_KEY = "yaarRadar:locationPrimerSeen";
+
 /**
  * Sequences the app's two opening interruptions so they don't land at once.
  *
@@ -38,7 +43,23 @@ const LocationGateContext = createContext<LocationGateValue | null>(null);
  */
 export function LocationGateProvider({ children }: { children: ReactNode }) {
   const permission = useGeolocationPermission();
-  const [manuallySettled, setManuallySettled] = useState(false);
+  // Seeded from the persisted primer answer, not just false.
+  //
+  // The flag is localStorage (it outlives the tab) while this state is
+  // per-session, and that mismatch deadlocked the gate: on a later visit
+  // with the permission still on "prompt", the primer wouldn't render
+  // because it had already been answered, so nothing could call
+  // markSettled, so `settled` stayed false and everything queued behind it
+  // never appeared. Reading the same flag the primer writes is what closes
+  // that loop.
+  const [manuallySettled, setManuallySettled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(LOCATION_PRIMER_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   const markSettled = useCallback(() => setManuallySettled(true), []);
 
