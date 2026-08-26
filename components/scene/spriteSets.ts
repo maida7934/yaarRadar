@@ -183,14 +183,6 @@ export const CHARACTER_SPRITE_BUNDLES: Record<string, CharacterSpriteBundle> = {
   cowboy: buildCharacterBundle("/sprites-cowboy"),
 };
 
-// CSS background-image doesn't crossfade -- the old image vanishes the
-// instant a direction switch sets a new url(), even before the new one has
-// loaded, so an image requested for the first time right as it's needed
-// (e.g. swaying "right" for the first time, or switching characters) flashes
-// blank. Preloading every variant up front (see hooks/usePreloadImages.ts)
-// avoids that -- every character bundle is included since "You" can become
-// any of them via the Me page's character picker. Computed once at module
-// load since none of it changes at runtime.
 /** Every image url one character bundle can show, across all four of its
  * pose families. Used to warm the browser cache for just the characters
  * actually on screen -- see FindScene. */
@@ -209,6 +201,18 @@ export function spriteSrcsForBundle(bundle: CharacterSpriteBundle): string[] {
   ]);
 }
 
+// CSS background-image doesn't crossfade -- the old image vanishes the
+// instant a direction switch sets a new url(), even before the new one has
+// loaded, so an image requested for the first time right as it's needed
+// (e.g. swaying "right" for the first time) flashes blank. Preloading the
+// variants up front (see hooks/usePreloadImages.ts) avoids that.
+//
+// This is every bundle in the roster, ~2 MB across 64 files. FindScene
+// deliberately does NOT use it -- it warms only the two bundles actually on
+// screen via spriteSrcsForBundle above, since pulling the whole roster on
+// every mount stalled the scene on mobile for characters nobody had picked.
+// Kept for any caller that genuinely wants the lot. Computed once at module
+// load since none of it changes at runtime.
 export const ALL_SPRITE_SRCS: string[] = [
   ...new Set(
     Object.values(CHARACTER_SPRITE_BUNDLES)
