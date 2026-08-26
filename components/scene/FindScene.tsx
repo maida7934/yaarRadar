@@ -613,6 +613,22 @@ export function FindScene() {
   // they're standing right there waiting to meet. Re-pushing the last known
   // position on a timer is what keeps a stationary user readable as live;
   // POST /locations is an upsert, so a repeat costs one row write.
+  // Latest token, read at call time so a refresh doesn't re-run effects
+  // that only ever needed *a* token, not a specific one.
+  const accessTokenRef = useRef(accessToken);
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
+  const hasAccessToken = accessToken !== null;
+
+  // Own id, stamped onto the encounter broadcast so the receiver can check
+  // it came from this pair. Held in a ref because the send happens inside
+  // the animation-frame callback.
+  const myUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    myUserIdRef.current = user?.id ?? null;
+  }, [user]);
+
   const myCoordsRef = useRef<Coords | null>(null);
   // Synced in an effect, not assigned during render -- refs are off limits
   // there. The interval below ticks every second, so it always reads a
@@ -651,10 +667,12 @@ export function FindScene() {
     hasSnappedToRealRef.current = false;
     meLastHeadingCoordsRef.current = null;
     friendLastHeadingCoordsRef.current = null;
-    if (!locationEnabled || !accessToken || !selectedFriend) return;
+    if (!locationEnabled || !hasAccessToken || !selectedFriend) return;
+    const token = accessTokenRef.current;
+    if (!token) return;
 
     let cancelled = false;
-    getLocations(accessToken, [selectedFriend.id])
+    getLocations(token, [selectedFriend.id])
       .then((rows) => {
         if (cancelled) return;
         const row = rows[0];
@@ -702,7 +720,14 @@ export function FindScene() {
       clearInterval(staleCheck);
       supabase.removeChannel(channel);
     };
-  }, [locationEnabled, accessToken, selectedFriend]);
+    // Deliberately keyed on *whether* there's a token, not its value.
+    // supabase-js auto-refreshes the access token roughly hourly and pushes
+    // the new one into Realtime itself, so the channel doesn't need
+    // rebuilding -- but with `accessToken` in this list, every refresh tore
+    // the subscription down, nulled friendCoords, reset hasSnappedToRealRef
+    // and re-snapped the friend's sprite. Once an hour, the friend visibly
+    // jumped for no reason the user could see.
+  }, [locationEnabled, hasAccessToken, selectedFriend]);
 
   // ── Synced "found each other" trigger ────────────────────────────────
   // Each device computes proximity from its own (independently lagged)
@@ -727,7 +752,20 @@ export function FindScene() {
     // which side of the pair they're on.
     const pairKey = [user.id, selectedFriend.id].sort().join("-");
     const channel = supabase.channel(`encounter-${pairKey}`, { config: { broadcast: { self: true } } });
-    channel.on("broadcast", { event: "encounter" }, () => startEncounter());
+    channel.on("broadcast", { event: "encounter" }, (message) => {
+      // Broadcast channels aren't RLS-gated the way postgres_changes is --
+      // without Realtime Authorization enabled server-side, anyone
+      // authenticated who knows both user ids could join this channel and
+      // fire an "encounter". Checking the sender is one of this pair costs
+      // nothing and stops stray cross-talk, but it is NOT a security
+      // boundary: the payload is self-reported and a determined sender can
+      // put whatever they like in it. The real fix is Realtime
+      // Authorization on the Supabase side; the blast radius meanwhile is
+      // an animation playing, since nothing here writes data.
+      const from = (message?.payload as { from?: string } | undefined)?.from;
+      if (from !== user.id && from !== selectedFriend.id) return;
+      startEncounter();
+    });
     channel.subscribe();
     encounterChannelRef.current = channel;
 
@@ -750,7 +788,20 @@ export function FindScene() {
   const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords) && !friendStale;
   // A valid, fresh fix on both sides, but too far apart to visualize
   // meaningfully -- see MAX_MEANINGFUL_DISTANCE_METERS.
-  const tooFarApart = hasRealFix && realDistanceBearing.distance > MAX_MEANINGFUL_DISTANCE_METERS;
+  // Discount the distance by our own fix's error radius before calling it
+  // "too far". useGeolocation's grace-period fallback accepts a coarse fix
+  // rather than leaving the UI stuck on "Locating you...", and a desktop
+  // browser positioning by WiFi/IP routinely reports accuracy in the
+  // hundreds or thousands of metres -- enough on its own to shove a pair
+  // who are actually standing together past the cutoff and replace the
+  // whole scene with "too far to show". Requiring the distance to clear the
+  // threshold by more than the fix could plausibly be wrong by means a
+  // coarse fix now widens the benefit of the doubt instead of ending the
+  // session. Only our own accuracy is available -- the locations table
+  // doesn't carry the friend's -- but our own side is the desktop case,
+  // which is where this actually goes wrong.
+  const tooFarApart =
+    hasRealFix && realDistanceBearing.distance - (myAccuracy ?? 0) > MAX_MEANINGFUL_DISTANCE_METERS;
 
   // ── Heading-of-travel (facing/walk-cycle) ────────────────────────────
   // Each sprite's facing direction and whether it's playing its walk cycle
@@ -1067,7 +1118,7 @@ export function FindScene() {
           // `phase` away from "none".
           if (!hasSentEncounterBroadcastRef.current && encounterChannelRef.current) {
             hasSentEncounterBroadcastRef.current = true;
-            encounterChannelRef.current.send({ type: "broadcast", event: "encounter", payload: {} });
+            encounterChannelRef.current.send({ type: "broadcast", event: "encounter", payload: { from: myUserIdRef.current } });
           }
         } else {
           // Dev/test mode: no second device to sync with.

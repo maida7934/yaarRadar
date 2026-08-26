@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes an in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+
+    # The build prerenders every route, and lib/supabaseClient.ts throws at
+    # module load when these are unset -- which fails the build outright
+    # rather than at runtime. Placeholders are deliberate: nothing here
+    # actually talks to Supabase or the backend, so CI only needs the vars
+    # to be present and well-formed. Real values live in Vercel's project
+    # settings; keeping fakes here means CI needs no secrets and still
+    # catches the missing-env failure mode before a deploy does.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # npm ci, not npm install -- installs exactly what package-lock.json
+      # pins, and fails loudly if the lockfile and package.json disagree.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # No typecheck script in package.json; next build runs tsc too, but
+      # doing it before the build gives a clearer failure than a build log.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
