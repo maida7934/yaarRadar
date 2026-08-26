@@ -5,11 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual trigger, so a push that doesn't get queued (see below) can still
+  # be checked without inventing an empty commit to nudge it.
+  workflow_dispatch:
 
-# A newer push to the same branch makes an in-flight run pointless.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+# No `concurrency: cancel-in-progress` here, deliberately. It was cancelling
+# superseded runs to save minutes, but runs cancelled before a runner picked
+# them up were recorded as startup_failure with zero jobs -- indistinguishable
+# from a broken workflow, and it happened while the file was byte-identical to
+# commits that passed. Actions minutes are free on a public repo, so it was
+# saving nothing and costing a trustworthy signal. Every push gets its own run.
 
 jobs:
   verify:
