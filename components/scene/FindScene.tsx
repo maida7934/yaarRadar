@@ -642,8 +642,16 @@ export function FindScene() {
       // Storage blocked -- it just means the primer may reappear next visit.
     }
   };
+  // "unsupported" as well as "prompt": iOS Safari can't report geolocation
+  // permission, so requiring "prompt" meant the explainer never appeared on
+  // an iPhone at all -- the browser's own prompt just arrived unannounced on
+  // the first toggle, which is what asking up front was meant to avoid.
+  // "granted" and "denied" both skip it: nothing to ask, and nothing a
+  // prompt could change.
   const showLocationPrimer =
-    !locationEnabled && !primerDismissed && locationPermission === "prompt";
+    !locationEnabled &&
+    !primerDismissed &&
+    (locationPermission === "prompt" || locationPermission === "unsupported");
 
   // Denied is a dead end from the page's side: the browser stops prompting
   // and every request fails instantly, so retrying can't help. Say what to

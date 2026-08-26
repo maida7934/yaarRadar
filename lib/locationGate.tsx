@@ -63,15 +63,14 @@ export function LocationGateProvider({ children }: { children: ReactNode }) {
 
   const markSettled = useCallback(() => setManuallySettled(true), []);
 
-  // "checking" and "prompt" are the only states still awaiting an answer.
-  // "unsupported" can never resolve on its own, so it doesn't gate -- the
-  // geolocation callback marks it instead, and until then the popup showing
-  // is far better than it never showing.
-  const settled =
-    manuallySettled ||
-    permission === "granted" ||
-    permission === "denied" ||
-    permission === "unsupported";
+  // "unsupported" deliberately does NOT count as settled. iOS Safari can't
+  // report geolocation permission at all, so treating that as "answered"
+  // let the popup fire immediately on every iPhone -- the exact overlap
+  // this gate exists to prevent. There, the primer still asks (it shows on
+  // "unsupported" too) and answering it sets manuallySettled; if the toggle
+  // was already on, geolocation's own fix-or-error does. Either way an
+  // iPhone reaches settled through a real answer rather than by default.
+  const settled = manuallySettled || permission === "granted" || permission === "denied";
 
   const value = useMemo(() => ({ settled, markSettled }), [settled, markSettled]);
 
