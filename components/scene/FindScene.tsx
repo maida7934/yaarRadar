@@ -157,39 +157,24 @@ const WORLD_REANCHOR_METERS = 250;
 const FRIEND_LOCATION_STALE_MS = LOCATION_PUSH_INTERVAL_MS * 3;
 
 // Real GPS distance is unbounded (a friend could be 2m or 20km away), but
-// How far from the camera a sprite may be placed, in world units.
-//
-// Sized against what's actually visible, not against the world: on a phone
-// the camera sees roughly 410 units across, so ~205 either side, and a
-// sprite is ~90 units wide. Anything past ~160 units is therefore partly or
-// wholly off screen. The previous 480 meant a friend disappeared entirely
-// somewhere past 130m and stayed gone -- the scene showed one lone
-// character with no indication the other was anywhere.
-const REAL_LOCATION_MAX_WORLD_RADIUS = 145;
-
 /**
- * Real distance and bearing -> a sprite's offset from the anchor.
+ * Real distance and bearing -> a sprite's offset from the anchor, at true
+ * scale: METERS_PER_WORLD_UNIT metres per world unit, no cap and no curve.
  *
- * Square root, not the exponential this used before. The exponential was
- * near-linear up close but flattened out early: 300m sat at 353 units and
- * 1000m at 474, so most of the usable range looked identical. Square root
- * keeps rising across the whole range, so 800m reads as clearly further
- * than 300m, which is far more of what the gap is for.
+ * Earlier versions compressed this so both sprites always stayed on screen.
+ * That bought visibility at the price of the one thing the gap is for --
+ * with a saturating curve, 300m and 1000m looked the same, so the distance
+ * being shown was simply not the distance you were from someone. A friend
+ * who is far away should look far away, and if that puts them past the edge
+ * of the screen then that is the honest answer: they are not near you.
  *
- * It cannot be to scale, and that is a property of the screen rather than a
- * choice: a sprite is ~90 units wide against ~410 units of visible world,
- * about four sprite-widths edge to edge. Showing 10m and 1000m in true
- * proportion on that is impossible -- either the far end leaves the screen
- * or the near end collapses to nothing. So the gap is an ordering, honest
- * about which is nearer and roughly by how much, and the HUD readout stays
- * exact haversine for the actual number.
- *
- * Normalised against MAX_MEANINGFUL_DISTANCE_METERS, so the far end of the
- * range lands exactly at the edge of what's visible rather than beyond it.
+ * What you navigate by then is the connection line, which still runs from
+ * you toward them at the true bearing and leaves the screen pointing the
+ * way to walk, plus the exact metres in the HUD. Walk that way and they
+ * come back into view on their own.
  */
 function distanceBearingToWorldOffset(distanceMeters: number, bearingDegrees: number) {
-  const t = Math.min(1, Math.max(0, distanceMeters) / MAX_MEANINGFUL_DISTANCE_METERS);
-  const radius = REAL_LOCATION_MAX_WORLD_RADIUS * Math.sqrt(t);
+  const radius = Math.max(0, distanceMeters) / METERS_PER_WORLD_UNIT;
   const rad = (bearingDegrees * Math.PI) / 180;
   // bearing 0 = north = "up" on screen = -Y, matching the existing
   // atan2(dx, -dy) convention the HUD/encounter code below already uses.
@@ -1152,10 +1137,16 @@ export function FindScene() {
           );
           const spawnX = WORLD_WIDTH / 2;
           const spawnY = WORLD_HEIGHT / 2;
-          const meTargetX = clamp(spawnX + meOffset.dx, 0, WORLD_WIDTH);
-          const meTargetY = clamp(spawnY + meOffset.dy, 0, WORLD_HEIGHT);
-          const friendTargetX = clamp(spawnX + friendOffset.dx, 0, WORLD_WIDTH);
-          const friendTargetY = clamp(spawnY + friendOffset.dy, 0, WORLD_HEIGHT);
+          // Deliberately unclamped. Pinning these to the world edge would
+          // put a distant friend at a position that isn't theirs, which is
+          // the false distance all over again -- just expressed as a corner
+          // instead of a curve. Off the world is fine: the camera follows
+          // "me", who the anchor keeps near the middle, and a friend past
+          // the edge is simply not on screen, which is the truth.
+          const meTargetX = spawnX + meOffset.dx;
+          const meTargetY = spawnY + meOffset.dy;
+          const friendTargetX = spawnX + friendOffset.dx;
+          const friendTargetY = spawnY + friendOffset.dy;
 
           if (!hasSnappedToRealRef.current) {
             // First fix after enabling location (or switching friends):
