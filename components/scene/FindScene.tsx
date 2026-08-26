@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { motion, useMotionValue, useAnimationFrame } from "framer-motion";
 import gsap from "gsap";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
@@ -16,8 +16,8 @@ import { TabBar } from "./TabBar";
 import { SpriteCharacter } from "./SpriteCharacter";
 import {
   CHARACTER_SPRITE_BUNDLES,
+  spriteSrcsForBundle,
   DEFAULT_CHARACTER_ID,
-  ALL_SPRITE_SRCS,
   type CharacterSpriteBundle,
   type DirectionalSpriteSet,
 } from "./spriteSets";
@@ -165,7 +165,6 @@ function headingDegreesToFacing(headingDegrees: number): Facing {
 }
 
 export function FindScene() {
-  usePreloadImages(ALL_SPRITE_SRCS);
 
   const keysRef = useRef<Record<string, boolean>>({});
 
@@ -545,7 +544,13 @@ export function FindScene() {
     setPasswordError(null);
     setPasswordSuccess(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+      // redirectTo is required -- without it Supabase falls back to the
+      // project's Site URL, landing the user on the app root with a
+      // recovery fragment nothing handles, so the emailed link appears to
+      // do nothing. /reset-password is the page that consumes it.
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
       if (error) throw error;
       setPasswordSuccess(`Reset link sent to ${user.email}.`);
     } catch {
@@ -566,9 +571,28 @@ export function FindScene() {
       .finally(() => setFriendsLoading(false));
   }, [accessToken]);
 
+  // Warm the cache for just the two characters actually rendered, rather
+  // than every bundle in the roster. The blanket version pulled ~2 MB over
+  // 64 image requests on every mount of this scene -- on a phone that's a
+  // multi-second stall competing with the location API calls, for sprites
+  // belonging to characters nobody has selected. Bundles are stable object
+  // references out of CHARACTER_SPRITE_BUNDLES, so this recomputes only on
+  // an actual character change.
   const friendCharacterBundle =
     CHARACTER_SPRITE_BUNDLES[selectedFriend?.character_id ?? DEFAULT_CHARACTER_ID] ??
     CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
+
+  usePreloadImages(
+    useMemo(
+      () => [
+        ...new Set([
+          ...spriteSrcsForBundle(myCharacterBundle),
+          ...spriteSrcsForBundle(friendCharacterBundle),
+        ]),
+      ],
+      [myCharacterBundle, friendCharacterBundle],
+    ),
+  );
 
   // ── Real location tracking ─────────────────────────────────────────────
   // Only watches/pushes/subscribes while the location toggle is on -- when

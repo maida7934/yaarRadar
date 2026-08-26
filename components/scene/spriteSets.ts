@@ -191,6 +191,24 @@ export const CHARACTER_SPRITE_BUNDLES: Record<string, CharacterSpriteBundle> = {
 // avoids that -- every character bundle is included since "You" can become
 // any of them via the Me page's character picker. Computed once at module
 // load since none of it changes at runtime.
+/** Every image url one character bundle can show, across all four of its
+ * pose families. Used to warm the browser cache for just the characters
+ * actually on screen -- see FindScene. */
+export function spriteSrcsForBundle(bundle: CharacterSpriteBundle): string[] {
+  return [bundle.you, bundle.towardCamera, bundle.faceRight, bundle.faceLeft].flatMap((set) => [
+    set.straight.walkSrc,
+    set.straight.idleSrc,
+    set.left.turning.walkSrc,
+    set.left.turning.idleSrc,
+    set.left.settled.walkSrc,
+    set.left.settled.idleSrc,
+    set.right.turning.walkSrc,
+    set.right.turning.idleSrc,
+    set.right.settled.walkSrc,
+    set.right.settled.idleSrc,
+  ]);
+}
+
 export const ALL_SPRITE_SRCS: string[] = [
   ...new Set(
     Object.values(CHARACTER_SPRITE_BUNDLES)
