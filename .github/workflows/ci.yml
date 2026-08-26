@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Lint, typecheck, test, build
+    name: Lint, test, build
     runs-on: ubuntu-latest
 
     # The build prerenders every route, and lib/supabaseClient.ts throws at
@@ -44,13 +44,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # No typecheck script in package.json; next build runs tsc too, but
-      # doing it before the build gives a clearer failure than a build log.
-      - name: Typecheck
-        run: npx tsc --noEmit
-
       - name: Test
         run: npm test
 
-      - name: Build
+      # Type checking happens here, not as a separate `tsc --noEmit` step.
+      # next-env.d.ts imports ./.next/dev/types/*.d.ts, which only `next dev`
+      # writes -- so on a fresh checkout a standalone tsc can't resolve the
+      # globals Next generates (LayoutProps, PageProps) and fails on code
+      # that is perfectly valid. `next build` generates what it needs and
+      # runs TypeScript itself, so type errors still fail the pipeline; they
+      # just surface here rather than in a step that can't work in CI.
+      - name: Build (includes type checking)
         run: npm run build
