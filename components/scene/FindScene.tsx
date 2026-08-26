@@ -136,6 +136,12 @@ const MOVEMENT_HOLD_MS = 4000;
 // direction or animating a walk cycle off GPS jitter alone.
 const MIN_MOVEMENT_METERS = 4;
 
+// How far "me" may travel from the world anchor before it is moved to the
+// current position. Comfortably inside the offset curve's linear range, so
+// ordinary walking never reaches the part where distance stops mapping
+// proportionally onto the world.
+const WORLD_REANCHOR_METERS = 250;
+
 // GET /locations and the Realtime subscription both return whatever's in
 // the `locations` row regardless of whether that person currently has
 // location sharing turned on -- a friend who shared once, then toggled it
@@ -702,6 +708,17 @@ export function FindScene() {
   const meMovingUntilRef = useRef(0);
   const friendMovingUntilRef = useRef(0);
 
+  // Fixed real-world point that both sprites are placed relative to.
+  //
+  // This is what makes each sprite answer only to its own wearer. Positions
+  // used to be derived from the pair vector, split in half around the world
+  // centre -- so one person walking moved BOTH sprites, and standing still
+  // was no guarantee your own sprite stayed put. Measuring each person from
+  // a shared anchor instead means your world position is a function of your
+  // coordinates alone: if you don't move, your sprite doesn't move, no
+  // matter what your friend does.
+  const worldAnchorRef = useRef<Coords | null>(null);
+
   // Push my own coords to the backend on an interval -- not on every single
   // fix, per CLAUDE.md.
   //
@@ -767,6 +784,7 @@ export function FindScene() {
     });
     friendUpdatedAtRef.current = null;
     hasSnappedToRealRef.current = false;
+    worldAnchorRef.current = null;
     meLastHeadingCoordsRef.current = null;
     friendLastHeadingCoordsRef.current = null;
     if (!locationEnabled || !hasAccessToken || !selectedFriend) return;
@@ -1086,14 +1104,39 @@ export function FindScene() {
         // moves, and `hasSnappedToRealRef` deliberately stays false so
         // coming back into range snaps fresh instead of gliding from
         // wherever they were left.
-        if (hasRealFix && !tooFarApart) {
-          const half = distanceBearingToWorldOffset(realDistanceBearing.distance / 2, realDistanceBearing.bearing);
+        if (hasRealFix && !tooFarApart && myCoords && friendCoords) {
+          // Anchor on the first real fix, then place each person by their
+          // own bearing and distance from it -- never from the pair vector,
+          // which is what used to make one person's walk move both sprites.
+          if (!worldAnchorRef.current) worldAnchorRef.current = myCoords;
+
+          // Walking far enough eventually pushes a sprite off the world (and
+          // into the offset curve's saturating tail), so the anchor follows
+          // once you've travelled far from it. Both sprites are measured
+          // from the same anchor, so re-anchoring shifts them together and
+          // preserves their relative geometry; the camera tracks "me", so
+          // there's nothing to see. Snapping rather than easing keeps it
+          // from being animated as though someone had moved.
+          if (haversineDistance(worldAnchorRef.current, myCoords) > WORLD_REANCHOR_METERS) {
+            worldAnchorRef.current = myCoords;
+            hasSnappedToRealRef.current = false;
+          }
+
+          const anchor = worldAnchorRef.current;
+          const meOffset = distanceBearingToWorldOffset(
+            haversineDistance(anchor, myCoords),
+            initialBearing(anchor, myCoords),
+          );
+          const friendOffset = distanceBearingToWorldOffset(
+            haversineDistance(anchor, friendCoords),
+            initialBearing(anchor, friendCoords),
+          );
           const spawnX = WORLD_WIDTH / 2;
           const spawnY = WORLD_HEIGHT / 2;
-          const meTargetX = clamp(spawnX - half.dx, 0, WORLD_WIDTH);
-          const meTargetY = clamp(spawnY - half.dy, 0, WORLD_HEIGHT);
-          const friendTargetX = clamp(spawnX + half.dx, 0, WORLD_WIDTH);
-          const friendTargetY = clamp(spawnY + half.dy, 0, WORLD_HEIGHT);
+          const meTargetX = clamp(spawnX + meOffset.dx, 0, WORLD_WIDTH);
+          const meTargetY = clamp(spawnY + meOffset.dy, 0, WORLD_HEIGHT);
+          const friendTargetX = clamp(spawnX + friendOffset.dx, 0, WORLD_WIDTH);
+          const friendTargetY = clamp(spawnY + friendOffset.dy, 0, WORLD_HEIGHT);
 
           if (!hasSnappedToRealRef.current) {
             // First fix after enabling location (or switching friends):
