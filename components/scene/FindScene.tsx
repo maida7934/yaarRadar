@@ -157,20 +157,39 @@ const WORLD_REANCHOR_METERS = 250;
 const FRIEND_LOCATION_STALE_MS = LOCATION_PUSH_INTERVAL_MS * 3;
 
 // Real GPS distance is unbounded (a friend could be 2m or 20km away), but
-// the game world is a small fixed canvas -- this caps how far the friend
-// sprite's world-space offset from "me" can grow, so a very distant friend
-// reads as "far, near the edge of the visible world" instead of being
-// placed off it (or clamped to WORLD_WIDTH/HEIGHT's raw edge) entirely.
-// Near real-world distances stay ~linear at METERS_PER_WORLD_UNIT's usual
-// scale (matches the dev-mode spawn gap); the curve only saturates once
-// distance grows large enough to matter.
-const REAL_LOCATION_MAX_WORLD_RADIUS = 480;
+// How far from the camera a sprite may be placed, in world units.
+//
+// Sized against what's actually visible, not against the world: on a phone
+// the camera sees roughly 410 units across, so ~205 either side, and a
+// sprite is ~90 units wide. Anything past ~160 units is therefore partly or
+// wholly off screen. The previous 480 meant a friend disappeared entirely
+// somewhere past 130m and stayed gone -- the scene showed one lone
+// character with no indication the other was anywhere.
+const REAL_LOCATION_MAX_WORLD_RADIUS = 145;
 
+/**
+ * Real distance and bearing -> a sprite's offset from the anchor.
+ *
+ * Square root, not the exponential this used before. The exponential was
+ * near-linear up close but flattened out early: 300m sat at 353 units and
+ * 1000m at 474, so most of the usable range looked identical. Square root
+ * keeps rising across the whole range, so 800m reads as clearly further
+ * than 300m, which is far more of what the gap is for.
+ *
+ * It cannot be to scale, and that is a property of the screen rather than a
+ * choice: a sprite is ~90 units wide against ~410 units of visible world,
+ * about four sprite-widths edge to edge. Showing 10m and 1000m in true
+ * proportion on that is impossible -- either the far end leaves the screen
+ * or the near end collapses to nothing. So the gap is an ordering, honest
+ * about which is nearer and roughly by how much, and the HUD readout stays
+ * exact haversine for the actual number.
+ *
+ * Normalised against MAX_MEANINGFUL_DISTANCE_METERS, so the far end of the
+ * range lands exactly at the edge of what's visible rather than beyond it.
+ */
 function distanceBearingToWorldOffset(distanceMeters: number, bearingDegrees: number) {
-  const unitsPerMeter = 1 / METERS_PER_WORLD_UNIT;
-  const linearRadius = distanceMeters * unitsPerMeter;
-  const radius =
-    REAL_LOCATION_MAX_WORLD_RADIUS * (1 - Math.exp(-linearRadius / REAL_LOCATION_MAX_WORLD_RADIUS));
+  const t = Math.min(1, Math.max(0, distanceMeters) / MAX_MEANINGFUL_DISTANCE_METERS);
+  const radius = REAL_LOCATION_MAX_WORLD_RADIUS * Math.sqrt(t);
   const rad = (bearingDegrees * Math.PI) / 180;
   // bearing 0 = north = "up" on screen = -Y, matching the existing
   // atan2(dx, -dy) convention the HUD/encounter code below already uses.
