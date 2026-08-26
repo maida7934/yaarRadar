@@ -436,13 +436,18 @@ export function FindScene() {
   const myCharacterBundle = CHARACTER_SPRITE_BUNDLES[characterId || DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Friend selection
-  const { accessToken, user } = useAuth();
+  const { accessToken, user, logOut } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [friendPickerOpen, setFriendPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  // Logging out is one tap away from a list of harmless navigation items,
+  // and getting it wrong costs a password re-entry -- so it confirms first,
+  // as its own sub-view like the others rather than a browser confirm().
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [activeInfoPanel, setActiveInfoPanel] = useState<null | "howto" | "terms" | "privacy" | "notifications" | "about">(null);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -455,6 +460,7 @@ export function FindScene() {
   const closeSettings = () => {
     setSettingsOpen(false);
     setChangingPassword(false);
+    setConfirmingLogout(false);
     setActiveInfoPanel(null);
     setOldPassword("");
     setNewPassword("");
@@ -1684,10 +1690,10 @@ export function FindScene() {
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                {(changingPassword || activeInfoPanel) && (
+                {(changingPassword || activeInfoPanel || confirmingLogout) && (
                   <button
                     type="button"
-                    onClick={() => { setChangingPassword(false); setActiveInfoPanel(null); setPasswordError(null); setPasswordSuccess(null); }}
+                    onClick={() => { setChangingPassword(false); setActiveInfoPanel(null); setConfirmingLogout(false); setPasswordError(null); setPasswordSuccess(null); }}
                     aria-label="Back"
                     style={{ color: "#5a4632", fontFamily: "var(--font-pixel)", fontSize: 16, fontWeight: 700, border: "none", background: "none" }}
                   >
@@ -1695,7 +1701,13 @@ export function FindScene() {
                   </button>
                 )}
                 <h2 style={{ fontFamily: "var(--font-pixel)", color: "#5a4632", fontSize: 16, fontWeight: 700 }}>
-                  {changingPassword ? "CHANGE PASSWORD" : activeInfoPanel ? INFO_PANELS[activeInfoPanel].title : "SETTINGS"}
+                  {confirmingLogout
+                    ? "LOG OUT"
+                    : changingPassword
+                      ? "CHANGE PASSWORD"
+                      : activeInfoPanel
+                        ? INFO_PANELS[activeInfoPanel].title
+                        : "SETTINGS"}
                 </h2>
               </div>
               <button
@@ -1718,7 +1730,71 @@ export function FindScene() {
               </button>
             </div>
 
-            {changingPassword ? (
+            {confirmingLogout ? (
+              <div className="flex flex-col gap-3">
+                <p style={{ fontFamily: "var(--font-pixel)", fontSize: 10, lineHeight: 1.7, color: "#5a4632" }}>
+                  Log out{user?.email ? ` of ${user.email}` : ""}? You&apos;ll need your
+                  password to get back in.
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLoggingOut(true);
+                    try {
+                      // Location sharing is a per-account decision, but the
+                      // toggle is stored per-device -- leaving it set would
+                      // hand the next person to log in here an account
+                      // already broadcasting its position, without them
+                      // ever having turned it on. Clear it with the session.
+                      try {
+                        window.localStorage.removeItem(LOCATION_ENABLED_STORAGE_KEY);
+                      } catch {
+                        // Storage blocked; setLocationEnabled below still
+                        // stops this session from watching.
+                      }
+                      setLocationEnabled(false);
+                      await logOut();
+                      // No need to close the drawer: with the session gone,
+                      // AuthGate swaps this whole scene out for the login
+                      // screen, and the drawer goes with it.
+                    } catch {
+                      setLoggingOut(false);
+                    }
+                  }}
+                  disabled={loggingOut}
+                  style={{
+                    padding: "10px 14px",
+                    backgroundColor: "#c98b86",
+                    border: "3px solid #8C6551",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#3b2418",
+                    opacity: loggingOut ? 0.6 : 1,
+                  }}
+                >
+                  {loggingOut ? "..." : "YES, LOG OUT"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingLogout(false)}
+                  disabled={loggingOut}
+                  style={{
+                    padding: "10px 14px",
+                    backgroundColor: "#f3e8db",
+                    border: "2px solid #8C6551",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#5a4632",
+                  }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            ) : changingPassword ? (
               <div className="flex flex-col gap-3">
                 <label className="flex flex-col gap-1">
                   <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#6B4731" }}>OLD PASSWORD</span>
@@ -1831,6 +1907,26 @@ export function FindScene() {
                     <span>&rsaquo;</span>
                   </button>
                 ))}
+
+                <button
+                  type="button"
+                  onClick={() => setConfirmingLogout(true)}
+                  className="w-full flex items-center justify-between text-left"
+                  style={{
+                    marginTop: 4,
+                    padding: "12px 14px",
+                    backgroundColor: "#f6ddda",
+                    border: "2px solid #b8736c",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 11,
+                    color: "#8a3f38",
+                    fontWeight: 700,
+                  }}
+                >
+                  LOG OUT
+                  <span>&rsaquo;</span>
+                </button>
               </>
             )}
           </div>
