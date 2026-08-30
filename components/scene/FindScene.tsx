@@ -935,7 +935,7 @@ export function FindScene() {
     // never shows past the background image's own edges (the world is
     // larger than the viewport, but not infinite).
     if (phase === "none") {
-      if (locationEnabled) {
+      if (locationEnabled && hasRealFix && !tooFarApart) {
         cameraFocus.current.x = (meWorldX.get() + friendWorldX.get()) / 2;
         cameraFocus.current.y = (meWorldY.get() + friendWorldY.get()) / 2;
       } else {
