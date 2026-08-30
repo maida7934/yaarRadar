@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { TabBar } from "@/components/scene/TabBar";
 import { NotchedFrame } from "@/components/ui/NotchedFrame";
+import { UserRowSkeleton } from "@/components/ui/Skeleton";
 import { useAuth } from "@/lib/authState";
 import {
   searchUsers,
@@ -446,7 +447,7 @@ export default function SearchPage() {
                 </span>
               </div>
 
-              {searching ? null : searchError ? (
+              {searching ? <UserRowSkeleton count={3} /> : searchError ? (
                 <div
                   className="text-center p-4 text-xs font-bold rounded-lg"
                   style={{ color: "#C97F80", backgroundColor: "rgba(253,246,236,0.88)", border: "2px solid #8C6B3E", fontFamily: "var(--font-pixel)" }}

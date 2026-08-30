@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { motion, useMotionValue, useAnimationFrame } from "framer-motion";
 import gsap from "gsap";
 import { usePreloadImages } from "@/hooks/usePreloadImages";
 import { useGeolocation } from "@/hooks/useGeolocation";
+import { useGeolocationPermission } from "@/hooks/useGeolocationPermission";
+import { LocationPrimer } from "@/components/ui/LocationPrimer";
+import { LOCATION_PRIMER_STORAGE_KEY, useLocationGate } from "@/lib/locationGate";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
@@ -16,8 +19,8 @@ import { TabBar } from "./TabBar";
 import { SpriteCharacter } from "./SpriteCharacter";
 import {
   CHARACTER_SPRITE_BUNDLES,
+  spriteSrcsForBundle,
   DEFAULT_CHARACTER_ID,
-  ALL_SPRITE_SRCS,
   type CharacterSpriteBundle,
   type DirectionalSpriteSet,
 } from "./spriteSets";
@@ -68,7 +71,22 @@ const NOTABLE_ACCURACY_METERS = 50;
 // stop moving and a message explains why, instead of quietly rendering
 // them pinned near the saturated edge of the visible world regardless of
 // how far past it they actually are.
-const MAX_MEANINGFUL_DISTANCE_METERS = 1500;
+//
+// 1000m is roughly a 12-minute walk, and about where a straight-line
+// bearing stops being something you can act on: past a kilometre, streets
+// and buildings decide your route far more than the direction does, so
+// pointing an arrow across them is closer to misleading than useful. This
+// is a proximity radar ("they're 40m that way" -- CLAUDE.md), not
+// navigation, and the cutoff should reflect that.
+//
+// Note this interacts with useGeolocation's grace-period fallback, which
+// accepts a coarse fix (a desktop browser with no GPS chip can report
+// kilometre-scale accuracy) rather than leaving the UI stuck. A coarse fix
+// on either side can push a pair that's actually close over this line, and
+// a lower cutoff makes that misfire more reachable -- which is exactly why
+// the accuracy caveat stays visible while tooFarApart rather than being
+// hidden behind the message.
+const MAX_MEANINGFUL_DISTANCE_METERS = 1000;
 
 // How close (meters) triggers the "found each other" encounter. Consumer
 // phone GPS commonly has 10-40m of real-world error (worse indoors/without
@@ -85,20 +103,44 @@ const ENCOUNTER_TRIGGER_METERS = 15;
 // because the user tapped the toggle themselves, never as a side effect of
 // this component remounting.
 const LOCATION_ENABLED_STORAGE_KEY = "yaarRadar:locationEnabled";
+// LOCATION_PRIMER_STORAGE_KEY is defined in lib/locationGate.tsx -- the gate
+// reads the same flag to decide whether the location question was already
+// answered in an earlier session, so there can only be one copy of the key.
 
-// Per-frame ease-toward-target factor for both real-GPS-driven sprites.
-// Deliberately slow (settles over ~3s, not ~1s) so each sprite is still
-// visibly gliding toward its last-known target for most of the gap between
-// LOCATION_PUSH_INTERVAL_MS updates, instead of snapping there almost
-// instantly and then sitting frozen until the next update arrives -- that
-// snap-then-freeze pattern is what reads as the sprite "getting stuck".
-const REAL_FOLLOW_LERP = 0.02;
+// Time constant (ms) for easing each real-GPS sprite toward its target:
+// roughly how long it takes to cover 63% of the remaining gap.
+//
+// Applied against the frame delta rather than per-frame. The old per-frame
+// factor meant the same code settled in ~1.7s at 30fps, ~0.8s at 60 and
+// ~0.4s at 120 -- so how fast a sprite moved depended on the phone, and
+// dropped frames visibly changed its speed mid-walk. Exponential smoothing
+// against elapsed time is identical on every device and immune to jank.
+//
+// Short enough to actually track the wearer: at ~700ms a sprite is within a
+// few percent of the reported position well before the next push arrives,
+// instead of spending most of the interval somewhere the person isn't.
+const REAL_FOLLOW_TIME_CONSTANT_MS = 700;
+
+// How long a sprite keeps playing its walk cycle after the last qualifying
+// movement. Walking produces plenty of fixes that fall under
+// MIN_MOVEMENT_METERS -- at ~1.4 m/s with fixes about a second apart, most
+// of them do -- and treating each of those as "stopped" made the animation
+// cut out between qualifying fixes rather than running continuously. Held
+// for a beat instead, so it reads as one walk rather than a stutter, and
+// still settles to idle shortly after someone genuinely stops.
+const MOVEMENT_HOLD_MS = 4000;
 
 // Minimum real-world movement (meters) between two accepted GPS fixes
 // before it counts as "this person actually moved" -- below this, treat
 // them as stationary (idle pose, facing held) rather than flipping
 // direction or animating a walk cycle off GPS jitter alone.
 const MIN_MOVEMENT_METERS = 4;
+
+// How far "me" may travel from the world anchor before it is moved to the
+// current position. Comfortably inside the offset curve's linear range, so
+// ordinary walking never reaches the part where distance stops mapping
+// proportionally onto the world.
+const WORLD_REANCHOR_METERS = 250;
 
 // GET /locations and the Realtime subscription both return whatever's in
 // the `locations` row regardless of whether that person currently has
@@ -115,20 +157,24 @@ const MIN_MOVEMENT_METERS = 4;
 const FRIEND_LOCATION_STALE_MS = LOCATION_PUSH_INTERVAL_MS * 3;
 
 // Real GPS distance is unbounded (a friend could be 2m or 20km away), but
-// the game world is a small fixed canvas -- this caps how far the friend
-// sprite's world-space offset from "me" can grow, so a very distant friend
-// reads as "far, near the edge of the visible world" instead of being
-// placed off it (or clamped to WORLD_WIDTH/HEIGHT's raw edge) entirely.
-// Near real-world distances stay ~linear at METERS_PER_WORLD_UNIT's usual
-// scale (matches the dev-mode spawn gap); the curve only saturates once
-// distance grows large enough to matter.
-const REAL_LOCATION_MAX_WORLD_RADIUS = 480;
-
+/**
+ * Real distance and bearing -> a sprite's offset from the anchor, at true
+ * scale: METERS_PER_WORLD_UNIT metres per world unit, no cap and no curve.
+ *
+ * Earlier versions compressed this so both sprites always stayed on screen.
+ * That bought visibility at the price of the one thing the gap is for --
+ * with a saturating curve, 300m and 1000m looked the same, so the distance
+ * being shown was simply not the distance you were from someone. A friend
+ * who is far away should look far away, and if that puts them past the edge
+ * of the screen then that is the honest answer: they are not near you.
+ *
+ * What you navigate by then is the connection line, which still runs from
+ * you toward them at the true bearing and leaves the screen pointing the
+ * way to walk, plus the exact metres in the HUD. Walk that way and they
+ * come back into view on their own.
+ */
 function distanceBearingToWorldOffset(distanceMeters: number, bearingDegrees: number) {
-  const unitsPerMeter = 1 / METERS_PER_WORLD_UNIT;
-  const linearRadius = distanceMeters * unitsPerMeter;
-  const radius =
-    REAL_LOCATION_MAX_WORLD_RADIUS * (1 - Math.exp(-linearRadius / REAL_LOCATION_MAX_WORLD_RADIUS));
+  const radius = Math.max(0, distanceMeters) / METERS_PER_WORLD_UNIT;
   const rad = (bearingDegrees * Math.PI) / 180;
   // bearing 0 = north = "up" on screen = -Y, matching the existing
   // atan2(dx, -dy) convention the HUD/encounter code below already uses.
@@ -150,7 +196,6 @@ function headingDegreesToFacing(headingDegrees: number): Facing {
 }
 
 export function FindScene() {
-  usePreloadImages(ALL_SPRITE_SRCS);
 
   const keysRef = useRef<Record<string, boolean>>({});
 
@@ -416,13 +461,18 @@ export function FindScene() {
   const myCharacterBundle = CHARACTER_SPRITE_BUNDLES[characterId || DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Friend selection
-  const { accessToken, user } = useAuth();
+  const { accessToken, user, logOut } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [friendPickerOpen, setFriendPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  // Logging out is one tap away from a list of harmless navigation items,
+  // and getting it wrong costs a password re-entry -- so it confirms first,
+  // as its own sub-view like the others rather than a browser confirm().
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [activeInfoPanel, setActiveInfoPanel] = useState<null | "howto" | "terms" | "privacy" | "notifications" | "about">(null);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -435,6 +485,7 @@ export function FindScene() {
   const closeSettings = () => {
     setSettingsOpen(false);
     setChangingPassword(false);
+    setConfirmingLogout(false);
     setActiveInfoPanel(null);
     setOldPassword("");
     setNewPassword("");
@@ -530,7 +581,13 @@ export function FindScene() {
     setPasswordError(null);
     setPasswordSuccess(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+      // redirectTo is required -- without it Supabase falls back to the
+      // project's Site URL, landing the user on the app root with a
+      // recovery fragment nothing handles, so the emailed link appears to
+      // do nothing. /reset-password is the page that consumes it.
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
       if (error) throw error;
       setPasswordSuccess(`Reset link sent to ${user.email}.`);
     } catch {
@@ -551,15 +608,80 @@ export function FindScene() {
       .finally(() => setFriendsLoading(false));
   }, [accessToken]);
 
+  // Warm the cache for just the two characters actually rendered, rather
+  // than every bundle in the roster. The blanket version pulled ~2 MB over
+  // 64 image requests on every mount of this scene -- on a phone that's a
+  // multi-second stall competing with the location API calls, for sprites
+  // belonging to characters nobody has selected. Bundles are stable object
+  // references out of CHARACTER_SPRITE_BUNDLES, so this recomputes only on
+  // an actual character change.
   const friendCharacterBundle =
     CHARACTER_SPRITE_BUNDLES[selectedFriend?.character_id ?? DEFAULT_CHARACTER_ID] ??
     CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
+
+  usePreloadImages(
+    useMemo(
+      () => [
+        ...new Set([
+          ...spriteSrcsForBundle(myCharacterBundle),
+          ...spriteSrcsForBundle(friendCharacterBundle),
+        ]),
+      ],
+      [myCharacterBundle, friendCharacterBundle],
+    ),
+  );
 
   // ── Real location tracking ─────────────────────────────────────────────
   // Only watches/pushes/subscribes while the location toggle is on -- when
   // it's off, "friend" stays under WASD test control exactly as before, so
   // none of this touches the existing dev/test walk behavior.
+  const { markSettled: markLocationSettled } = useLocationGate();
   const { coords: myCoords, error: geoError, accuracy: myAccuracy } = useGeolocation(locationEnabled);
+  // Where the Permissions API isn't available, a fix or an error is the only
+  // evidence the prompt was answered. Harmless elsewhere -- by the time
+  // either arrives the permission has resolved and this is a no-op.
+  useEffect(() => {
+    if (myCoords || geoError) markLocationSettled();
+  }, [myCoords, geoError, markLocationSettled]);
+  const locationPermission = useGeolocationPermission();
+
+  // Ask up front rather than leaving the browser prompt to whenever someone
+  // happens to hit the toggle. Only when the permission is still "prompt":
+  // if it's already granted there's nothing to ask, and if it's "denied" the
+  // browser won't show a prompt no matter what we do -- the toggle area
+  // explains how to undo that instead. Dismissing is remembered so this
+  // isn't nagging on every visit; the toggle is always still there.
+  const [primerDismissed, setPrimerDismissed] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(LOCATION_PRIMER_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const dismissPrimer = () => {
+    setPrimerDismissed(true);
+    try {
+      window.localStorage.setItem(LOCATION_PRIMER_STORAGE_KEY, "true");
+    } catch {
+      // Storage blocked -- it just means the primer may reappear next visit.
+    }
+  };
+  // "unsupported" as well as "prompt": iOS Safari can't report geolocation
+  // permission, so requiring "prompt" meant the explainer never appeared on
+  // an iPhone at all -- the browser's own prompt just arrived unannounced on
+  // the first toggle, which is what asking up front was meant to avoid.
+  // "granted" and "denied" both skip it: nothing to ask, and nothing a
+  // prompt could change.
+  const showLocationPrimer =
+    !locationEnabled &&
+    !primerDismissed &&
+    (locationPermission === "prompt" || locationPermission === "unsupported");
+
+  // Denied is a dead end from the page's side: the browser stops prompting
+  // and every request fails instantly, so retrying can't help. Say what to
+  // actually do instead of echoing "User denied Geolocation".
+  const locationBlocked = locationPermission === "denied";
   const [friendCoords, setFriendCoords] = useState<Coords | null>(null);
   const [friendLocationError, setFriendLocationError] = useState<string | null>(null);
   // When the friend's location row was last actually updated (ms since
@@ -584,17 +706,75 @@ export function FindScene() {
   // own actual movement, not their bearing relative to the other person.
   const meLastHeadingCoordsRef = useRef<Coords | null>(null);
   const friendLastHeadingCoordsRef = useRef<Coords | null>(null);
+  // Timestamps until which each sprite keeps its walk cycle running -- see
+  // MOVEMENT_HOLD_MS. Refs, not state: they're written from the same effects
+  // that set the pose and shouldn't themselves cause a render.
+  const meMovingUntilRef = useRef(0);
+  const friendMovingUntilRef = useRef(0);
 
-  // Push my own coords to the backend on an interval as they come in from
-  // watchPosition -- not on every single fix, per CLAUDE.md.
-  const lastPushRef = useRef(0);
+  // Fixed real-world point that both sprites are placed relative to.
+  //
+  // This is what makes each sprite answer only to its own wearer. Positions
+  // used to be derived from the pair vector, split in half around the world
+  // centre -- so one person walking moved BOTH sprites, and standing still
+  // was no guarantee your own sprite stayed put. Measuring each person from
+  // a shared anchor instead means your world position is a function of your
+  // coordinates alone: if you don't move, your sprite doesn't move, no
+  // matter what your friend does.
+  const worldAnchorRef = useRef<Coords | null>(null);
+
+  // Push my own coords to the backend on an interval -- not on every single
+  // fix, per CLAUDE.md.
+  //
+  // Driven by a timer reading the latest coords, rather than by `myCoords`
+  // changing. Those aren't equivalent: a fix arriving inside the throttle
+  // window used to be dropped outright with nothing scheduled to send it,
+  // so if updates then stopped, that position never reached the server at
+  // all. Worse, watchPosition can go quiet entirely once someone stands
+  // still -- no new fixes, so no pushes, so `updated_at` stops advancing
+  // and the other device marks them stale (FRIEND_LOCATION_STALE_MS) while
+  // they're standing right there waiting to meet. Re-pushing the last known
+  // position on a timer is what keeps a stationary user readable as live;
+  // POST /locations is an upsert, so a repeat costs one row write.
+  // Latest token, read at call time so a refresh doesn't re-run effects
+  // that only ever needed *a* token, not a specific one.
+  const accessTokenRef = useRef(accessToken);
   useEffect(() => {
-    if (!locationEnabled || !accessToken || !myCoords) return;
-    const now = Date.now();
-    if (now - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS) return;
-    lastPushRef.current = now;
-    pushLocation(accessToken, myCoords.latitude, myCoords.longitude).catch(() => {});
-  }, [locationEnabled, accessToken, myCoords]);
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
+  const hasAccessToken = accessToken !== null;
+
+  // Own id, stamped onto the encounter broadcast so the receiver can check
+  // it came from this pair. Held in a ref because the send happens inside
+  // the animation-frame callback.
+  const myUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    myUserIdRef.current = user?.id ?? null;
+  }, [user]);
+
+  const myCoordsRef = useRef<Coords | null>(null);
+  // Synced in an effect, not assigned during render -- refs are off limits
+  // there. The interval below ticks every second, so it always reads a
+  // value at most one tick behind the newest fix.
+  useEffect(() => {
+    myCoordsRef.current = myCoords;
+  }, [myCoords]);
+  useEffect(() => {
+    if (!locationEnabled || !accessToken) return;
+    let lastPushedAt = 0;
+    const maybePush = () => {
+      const coords = myCoordsRef.current;
+      if (!coords) return; // no fix yet -- nothing to send
+      if (Date.now() - lastPushedAt < LOCATION_PUSH_INTERVAL_MS) return;
+      lastPushedAt = Date.now();
+      pushLocation(accessToken, coords.latitude, coords.longitude).catch(() => {});
+    };
+    // Ticks faster than the push interval so the *first* fix goes out
+    // promptly rather than waiting a whole interval; maybePush itself is
+    // what enforces the actual cadence.
+    const id = setInterval(maybePush, 1000);
+    return () => clearInterval(id);
+  }, [locationEnabled, accessToken]);
 
   // Fetch the selected friend's last known location, then subscribe to
   // Supabase Realtime for live updates to just that friend's row -- the one
@@ -608,12 +788,15 @@ export function FindScene() {
     });
     friendUpdatedAtRef.current = null;
     hasSnappedToRealRef.current = false;
+    worldAnchorRef.current = null;
     meLastHeadingCoordsRef.current = null;
     friendLastHeadingCoordsRef.current = null;
-    if (!locationEnabled || !accessToken || !selectedFriend) return;
+    if (!locationEnabled || !hasAccessToken || !selectedFriend) return;
+    const token = accessTokenRef.current;
+    if (!token) return;
 
     let cancelled = false;
-    getLocations(accessToken, [selectedFriend.id])
+    getLocations(token, [selectedFriend.id])
       .then((rows) => {
         if (cancelled) return;
         const row = rows[0];
@@ -661,7 +844,14 @@ export function FindScene() {
       clearInterval(staleCheck);
       supabase.removeChannel(channel);
     };
-  }, [locationEnabled, accessToken, selectedFriend]);
+    // Deliberately keyed on *whether* there's a token, not its value.
+    // supabase-js auto-refreshes the access token roughly hourly and pushes
+    // the new one into Realtime itself, so the channel doesn't need
+    // rebuilding -- but with `accessToken` in this list, every refresh tore
+    // the subscription down, nulled friendCoords, reset hasSnappedToRealRef
+    // and re-snapped the friend's sprite. Once an hour, the friend visibly
+    // jumped for no reason the user could see.
+  }, [locationEnabled, hasAccessToken, selectedFriend]);
 
   // ── Synced "found each other" trigger ────────────────────────────────
   // Each device computes proximity from its own (independently lagged)
@@ -686,7 +876,20 @@ export function FindScene() {
     // which side of the pair they're on.
     const pairKey = [user.id, selectedFriend.id].sort().join("-");
     const channel = supabase.channel(`encounter-${pairKey}`, { config: { broadcast: { self: true } } });
-    channel.on("broadcast", { event: "encounter" }, () => startEncounter());
+    channel.on("broadcast", { event: "encounter" }, (message) => {
+      // Broadcast channels aren't RLS-gated the way postgres_changes is --
+      // without Realtime Authorization enabled server-side, anyone
+      // authenticated who knows both user ids could join this channel and
+      // fire an "encounter". Checking the sender is one of this pair costs
+      // nothing and stops stray cross-talk, but it is NOT a security
+      // boundary: the payload is self-reported and a determined sender can
+      // put whatever they like in it. The real fix is Realtime
+      // Authorization on the Supabase side; the blast radius meanwhile is
+      // an animation playing, since nothing here writes data.
+      const from = (message?.payload as { from?: string } | undefined)?.from;
+      if (from !== user.id && from !== selectedFriend.id) return;
+      startEncounter();
+    });
     channel.subscribe();
     encounterChannelRef.current = channel;
 
@@ -709,7 +912,20 @@ export function FindScene() {
   const hasRealFix = locationEnabled && Boolean(myCoords) && Boolean(friendCoords) && !friendStale;
   // A valid, fresh fix on both sides, but too far apart to visualize
   // meaningfully -- see MAX_MEANINGFUL_DISTANCE_METERS.
-  const tooFarApart = hasRealFix && realDistanceBearing.distance > MAX_MEANINGFUL_DISTANCE_METERS;
+  // Discount the distance by our own fix's error radius before calling it
+  // "too far". useGeolocation's grace-period fallback accepts a coarse fix
+  // rather than leaving the UI stuck on "Locating you...", and a desktop
+  // browser positioning by WiFi/IP routinely reports accuracy in the
+  // hundreds or thousands of metres -- enough on its own to shove a pair
+  // who are actually standing together past the cutoff and replace the
+  // whole scene with "too far to show". Requiring the distance to clear the
+  // threshold by more than the fix could plausibly be wrong by means a
+  // coarse fix now widens the benefit of the doubt instead of ending the
+  // session. Only our own accuracy is available -- the locations table
+  // doesn't carry the friend's -- but our own side is the desktop case,
+  // which is where this actually goes wrong.
+  const tooFarApart =
+    hasRealFix && realDistanceBearing.distance - (myAccuracy ?? 0) > MAX_MEANINGFUL_DISTANCE_METERS;
 
   // ── Heading-of-travel (facing/walk-cycle) ────────────────────────────
   // Each sprite's facing direction and whether it's playing its walk cycle
@@ -729,11 +945,17 @@ export function FindScene() {
     }
     const movedMeters = haversineDistance(last, myCoords);
     if (movedMeters < MIN_MOVEMENT_METERS) {
-      queueMicrotask(() => setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      // Under the threshold isn't the same as stopped: while walking, most
+      // fixes land here. Only drop out of the walk cycle once nothing has
+      // qualified for a while, otherwise the animation cuts in and out.
+      if (Date.now() >= meMovingUntilRef.current) {
+        queueMicrotask(() => setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      }
       return;
     }
     const heading = initialBearing(last, myCoords);
     meLastHeadingCoordsRef.current = myCoords;
+    meMovingUntilRef.current = Date.now() + MOVEMENT_HOLD_MS;
     queueMicrotask(() => setMeState({ moving: true, facing: headingDegreesToFacing(heading) }));
   }, [locationEnabled, myCoords, tooFarApart]);
 
@@ -746,13 +968,34 @@ export function FindScene() {
     }
     const movedMeters = haversineDistance(last, friendCoords);
     if (movedMeters < MIN_MOVEMENT_METERS) {
-      queueMicrotask(() => setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      if (Date.now() >= friendMovingUntilRef.current) {
+        queueMicrotask(() => setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev)));
+      }
       return;
     }
     const heading = initialBearing(last, friendCoords);
     friendLastHeadingCoordsRef.current = friendCoords;
+    friendMovingUntilRef.current = Date.now() + MOVEMENT_HOLD_MS;
     queueMicrotask(() => setFriendState({ moving: true, facing: headingDegreesToFacing(heading) }));
   }, [locationEnabled, friendCoords, tooFarApart]);
+
+  // The hold above is cleared by the next sub-threshold fix -- but if
+  // someone stops dead, watchPosition can simply stop reporting, and with no
+  // further fix nothing would ever run that check. Then the sprite keeps
+  // walking on the spot indefinitely. This expires the hold on its own.
+  useEffect(() => {
+    if (!locationEnabled) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      if (now >= meMovingUntilRef.current) {
+        setMeState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+      }
+      if (now >= friendMovingUntilRef.current) {
+        setFriendState((prev) => (prev.moving ? { ...prev, moving: false } : prev));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [locationEnabled]);
 
   // Whenever there's no trustworthy real fix on both sides (still waiting,
   // the friend's row just went stale, or location got turned off) -- or
@@ -865,14 +1108,45 @@ export function FindScene() {
         // moves, and `hasSnappedToRealRef` deliberately stays false so
         // coming back into range snaps fresh instead of gliding from
         // wherever they were left.
-        if (hasRealFix && !tooFarApart) {
-          const half = distanceBearingToWorldOffset(realDistanceBearing.distance / 2, realDistanceBearing.bearing);
+        if (hasRealFix && !tooFarApart && myCoords && friendCoords) {
+          // Anchor on the first real fix, then place each person by their
+          // own bearing and distance from it -- never from the pair vector,
+          // which is what used to make one person's walk move both sprites.
+          if (!worldAnchorRef.current) worldAnchorRef.current = myCoords;
+
+          // Walking far enough eventually pushes a sprite off the world (and
+          // into the offset curve's saturating tail), so the anchor follows
+          // once you've travelled far from it. Both sprites are measured
+          // from the same anchor, so re-anchoring shifts them together and
+          // preserves their relative geometry; the camera tracks "me", so
+          // there's nothing to see. Snapping rather than easing keeps it
+          // from being animated as though someone had moved.
+          if (haversineDistance(worldAnchorRef.current, myCoords) > WORLD_REANCHOR_METERS) {
+            worldAnchorRef.current = myCoords;
+            hasSnappedToRealRef.current = false;
+          }
+
+          const anchor = worldAnchorRef.current;
+          const meOffset = distanceBearingToWorldOffset(
+            haversineDistance(anchor, myCoords),
+            initialBearing(anchor, myCoords),
+          );
+          const friendOffset = distanceBearingToWorldOffset(
+            haversineDistance(anchor, friendCoords),
+            initialBearing(anchor, friendCoords),
+          );
           const spawnX = WORLD_WIDTH / 2;
           const spawnY = WORLD_HEIGHT / 2;
-          const meTargetX = clamp(spawnX - half.dx, 0, WORLD_WIDTH);
-          const meTargetY = clamp(spawnY - half.dy, 0, WORLD_HEIGHT);
-          const friendTargetX = clamp(spawnX + half.dx, 0, WORLD_WIDTH);
-          const friendTargetY = clamp(spawnY + half.dy, 0, WORLD_HEIGHT);
+          // Deliberately unclamped. Pinning these to the world edge would
+          // put a distant friend at a position that isn't theirs, which is
+          // the false distance all over again -- just expressed as a corner
+          // instead of a curve. Off the world is fine: the camera follows
+          // "me", who the anchor keeps near the middle, and a friend past
+          // the edge is simply not on screen, which is the truth.
+          const meTargetX = spawnX + meOffset.dx;
+          const meTargetY = spawnY + meOffset.dy;
+          const friendTargetX = spawnX + friendOffset.dx;
+          const friendTargetY = spawnY + friendOffset.dy;
 
           if (!hasSnappedToRealRef.current) {
             // First fix after enabling location (or switching friends):
@@ -887,12 +1161,14 @@ export function FindScene() {
             friendWorldY.set(friendTargetY);
             hasSnappedToRealRef.current = true;
           } else {
-            // Ease toward each target rather than snapping -- see
-            // REAL_FOLLOW_LERP's comment for why this is deliberately slow.
-            meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * REAL_FOLLOW_LERP);
-            meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * REAL_FOLLOW_LERP);
-            friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * REAL_FOLLOW_LERP);
-            friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * REAL_FOLLOW_LERP);
+            // Ease toward each target rather than snapping. The factor is
+            // derived from the frame delta, so the motion is the same on a
+            // 30, 60 or 120Hz screen -- see REAL_FOLLOW_TIME_CONSTANT_MS.
+            const follow = 1 - Math.exp(-delta / REAL_FOLLOW_TIME_CONSTANT_MS);
+            meWorldX.set(meWorldX.get() + (meTargetX - meWorldX.get()) * follow);
+            meWorldY.set(meWorldY.get() + (meTargetY - meWorldY.get()) * follow);
+            friendWorldX.set(friendWorldX.get() + (friendTargetX - friendWorldX.get()) * follow);
+            friendWorldY.set(friendWorldY.get() + (friendTargetY - friendWorldY.get()) * follow);
           }
         }
       } else {
@@ -1026,7 +1302,7 @@ export function FindScene() {
           // `phase` away from "none".
           if (!hasSentEncounterBroadcastRef.current && encounterChannelRef.current) {
             hasSentEncounterBroadcastRef.current = true;
-            encounterChannelRef.current.send({ type: "broadcast", event: "encounter", payload: {} });
+            encounterChannelRef.current.send({ type: "broadcast", event: "encounter", payload: { from: myUserIdRef.current } });
           }
         } else {
           // Dev/test mode: no second device to sync with.
@@ -1300,18 +1576,20 @@ export function FindScene() {
                 still waiting for a fix, the friend hasn't shared their
                 location yet, or they're too far apart to show); silent
                 once a real, in-range fix on both sides lands. */}
-            {locationEnabled && (!hasRealFix || tooFarApart) && (
+            {(locationBlocked || (locationEnabled && (!hasRealFix || tooFarApart))) && (
               <span
                 className="text-center"
                 style={{
                   fontFamily: "var(--font-pixel)",
                   fontSize: 7,
                   lineHeight: 1.3,
-                  color: geoError || friendLocationError ? "#a33" : "#5a4632",
+                  color: locationBlocked || geoError || friendLocationError ? "#a33" : "#5a4632",
                   maxWidth: 104,
                 }}
               >
-                {geoError ||
+                {(locationBlocked
+                  ? "Location is blocked for this site. Turn it back on in your browser's site settings, then try again."
+                  : geoError) ||
                   friendLocationError ||
                   (tooFarApart
                     ? `You and ${selectedFriend?.username ?? "your friend"} are ${Math.round(realDistanceBearing.distance).toLocaleString()}m apart -- too far to show.`
@@ -1493,6 +1771,25 @@ export function FindScene() {
 
       {/* ── Settings side drawer — slides in from the right, covering
           ~65% of the screen width (roughly "one and a half quarters"). ── */}
+      {showLocationPrimer && (
+        <LocationPrimer
+          onEnable={() => {
+            dismissPrimer();
+            // Flipping the toggle is what mounts the watch, which is what
+            // actually raises the browser prompt -- from inside this tap,
+            // so it counts as a user gesture.
+            setLocationEnabled(true);
+          }}
+          onDismiss={() => {
+            dismissPrimer();
+            // Declining means no browser prompt is coming, so the permission
+            // state will sit on "prompt" indefinitely -- say so explicitly
+            // or anything queued behind it waits forever.
+            markLocationSettled();
+          }}
+        />
+      )}
+
       {settingsOpen && (
         <div className="absolute inset-0 z-50 flex justify-end" onClick={closeSettings}>
           <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.55)" }} />
@@ -1503,10 +1800,10 @@ export function FindScene() {
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                {(changingPassword || activeInfoPanel) && (
+                {(changingPassword || activeInfoPanel || confirmingLogout) && (
                   <button
                     type="button"
-                    onClick={() => { setChangingPassword(false); setActiveInfoPanel(null); setPasswordError(null); setPasswordSuccess(null); }}
+                    onClick={() => { setChangingPassword(false); setActiveInfoPanel(null); setConfirmingLogout(false); setPasswordError(null); setPasswordSuccess(null); }}
                     aria-label="Back"
                     style={{ color: "#5a4632", fontFamily: "var(--font-pixel)", fontSize: 16, fontWeight: 700, border: "none", background: "none" }}
                   >
@@ -1514,7 +1811,13 @@ export function FindScene() {
                   </button>
                 )}
                 <h2 style={{ fontFamily: "var(--font-pixel)", color: "#5a4632", fontSize: 16, fontWeight: 700 }}>
-                  {changingPassword ? "CHANGE PASSWORD" : activeInfoPanel ? INFO_PANELS[activeInfoPanel].title : "SETTINGS"}
+                  {confirmingLogout
+                    ? "LOG OUT"
+                    : changingPassword
+                      ? "CHANGE PASSWORD"
+                      : activeInfoPanel
+                        ? INFO_PANELS[activeInfoPanel].title
+                        : "SETTINGS"}
                 </h2>
               </div>
               <button
@@ -1537,7 +1840,71 @@ export function FindScene() {
               </button>
             </div>
 
-            {changingPassword ? (
+            {confirmingLogout ? (
+              <div className="flex flex-col gap-3">
+                <p style={{ fontFamily: "var(--font-pixel)", fontSize: 10, lineHeight: 1.7, color: "#5a4632" }}>
+                  Log out{user?.email ? ` of ${user.email}` : ""}? You&apos;ll need your
+                  password to get back in.
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLoggingOut(true);
+                    try {
+                      // Location sharing is a per-account decision, but the
+                      // toggle is stored per-device -- leaving it set would
+                      // hand the next person to log in here an account
+                      // already broadcasting its position, without them
+                      // ever having turned it on. Clear it with the session.
+                      try {
+                        window.localStorage.removeItem(LOCATION_ENABLED_STORAGE_KEY);
+                      } catch {
+                        // Storage blocked; setLocationEnabled below still
+                        // stops this session from watching.
+                      }
+                      setLocationEnabled(false);
+                      await logOut();
+                      // No need to close the drawer: with the session gone,
+                      // AuthGate swaps this whole scene out for the login
+                      // screen, and the drawer goes with it.
+                    } catch {
+                      setLoggingOut(false);
+                    }
+                  }}
+                  disabled={loggingOut}
+                  style={{
+                    padding: "10px 14px",
+                    backgroundColor: "#c98b86",
+                    border: "3px solid #8C6551",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#3b2418",
+                    opacity: loggingOut ? 0.6 : 1,
+                  }}
+                >
+                  {loggingOut ? "..." : "YES, LOG OUT"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingLogout(false)}
+                  disabled={loggingOut}
+                  style={{
+                    padding: "10px 14px",
+                    backgroundColor: "#f3e8db",
+                    border: "2px solid #8C6551",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#5a4632",
+                  }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            ) : changingPassword ? (
               <div className="flex flex-col gap-3">
                 <label className="flex flex-col gap-1">
                   <span style={{ fontFamily: "var(--font-pixel)", fontSize: 9, color: "#6B4731" }}>OLD PASSWORD</span>
@@ -1650,6 +2017,26 @@ export function FindScene() {
                     <span>&rsaquo;</span>
                   </button>
                 ))}
+
+                <button
+                  type="button"
+                  onClick={() => setConfirmingLogout(true)}
+                  className="w-full flex items-center justify-between text-left"
+                  style={{
+                    marginTop: 4,
+                    padding: "12px 14px",
+                    backgroundColor: "#f6ddda",
+                    border: "2px solid #b8736c",
+                    borderRadius: 10,
+                    fontFamily: "var(--font-pixel)",
+                    fontSize: 11,
+                    color: "#8a3f38",
+                    fontWeight: 700,
+                  }}
+                >
+                  LOG OUT
+                  <span>&rsaquo;</span>
+                </button>
               </>
             )}
           </div>

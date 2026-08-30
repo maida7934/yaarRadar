@@ -448,3 +448,32 @@ button, a, [role="button"] {
     background-repeat: no-repeat;
   }
 }
+
+/* ── Loading skeletons ─────────────────────────────────────────────────
+   Stepped rather than a smooth fade: everything else on screen is pixel
+   art, and a continuous CSS pulse reads as a different material. Four
+   discrete opacity steps keep it in the same visual language, and the
+   animation is dropped entirely for anyone who asked for reduced motion
+   (a whole screen of pulsing blocks is exactly the case that rule is
+   for). Colours come from the warm cream palette the cards themselves
+   use, so a skeleton occupies the same visual weight as the real content
+   and the swap doesn't jolt. */
+@keyframes px-skeleton-pulse {
+  0%, 24%   { opacity: 0.45; }
+  25%, 49%  { opacity: 0.62; }
+  50%, 74%  { opacity: 0.80; }
+  75%, 100% { opacity: 0.62; }
+}
+
+.px-skeleton {
+  background-color: #d8c9b6;
+  border: 2px solid #b9a48c;
+  animation: px-skeleton-pulse 1.2s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-skeleton {
+    animation: none;
+    opacity: 0.62;
+  }
+}

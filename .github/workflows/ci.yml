@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Manual trigger, so a push that doesn't get queued (see below) can still
+  # be checked without inventing an empty commit to nudge it.
+  workflow_dispatch:
+
+# No `concurrency: cancel-in-progress` here, deliberately. It was cancelling
+# superseded runs to save minutes, but runs cancelled before a runner picked
+# them up were recorded as startup_failure with zero jobs -- indistinguishable
+# from a broken workflow, and it happened while the file was byte-identical to
+# commits that passed. Actions minutes are free on a public repo, so it was
+# saving nothing and costing a trustworthy signal. Every push gets its own run.
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+
+    # The build prerenders every route, and lib/supabaseClient.ts throws at
+    # module load when these are unset -- which fails the build outright
+    # rather than at runtime. Placeholders are deliberate: nothing here
+    # actually talks to Supabase or the backend, so CI only needs the vars
+    # to be present and well-formed. Real values live in Vercel's project
+    # settings; keeping fakes here means CI needs no secrets and still
+    # catches the missing-env failure mode before a deploy does.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # npm ci, not npm install -- installs exactly what package-lock.json
+      # pins, and fails loudly if the lockfile and package.json disagree.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # `next typegen` first, then tsc. Next writes globals its own files
+      # rely on -- LayoutProps, PageProps and friends -- into .next, and
+      # next-env.d.ts imports them; on a fresh checkout none of that exists
+      # yet, so a bare `tsc --noEmit` can fail on code that is perfectly
+      # valid. typegen produces exactly those definitions without paying for
+      # a full build, so the check runs early and its failures point at types
+      # rather than being buried in build output.
+      #
+      # (An earlier version of this file dropped the step altogether, on the
+      # since-disproved belief that only `next dev` could generate them.)
+      - name: Typecheck
+        run: |
+          npx next typegen
+          npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      # Compiles and type-checks in its own right, so it backstops the step
+      # above -- and it's the only step that exercises prerendering, which is
+      # where a missing env var or a bad server/client boundary surfaces.
+      - name: Build
+        run: npm run build

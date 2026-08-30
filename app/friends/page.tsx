@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode, type CSSPrope
 import { TabBar } from "@/components/scene/TabBar";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { NotchedFrame } from "@/components/ui/NotchedFrame";
+import { FriendGridSkeleton, UserRowSkeleton } from "@/components/ui/Skeleton";
 import { avatarBackgroundPosition } from "@/lib/spriteAvatar";
 import { characterAvatarSrc } from "@/lib/characterAvatars";
 import { lookupUser } from "@/lib/userDirectory";
@@ -377,7 +378,7 @@ export default function FriendsPage() {
         <div className="relative z-10 flex-1 overflow-y-auto p-4 mx-auto w-full max-w-5xl">
           {tab === "friends" ? (
             friendsLoading ? (
-              <div className="text-center p-8 text-sm" style={{ color: TEXT_MUTED }}>Loading...</div>
+              <FriendGridSkeleton />
             ) : friendsError ? (
               <div className="text-center p-8 text-sm font-bold" style={{ color: RED }}>{friendsError}</div>
             ) : friends.length > 0 ? (
@@ -466,7 +467,7 @@ export default function FriendsPage() {
               <div className="text-center p-8 text-sm" style={{ color: TEXT_MUTED }}>No friends yet.</div>
             )
           ) : requestsLoading ? (
-            <div className="text-center p-8 text-sm" style={{ color: TEXT_MUTED }}>Loading...</div>
+            <UserRowSkeleton />
           ) : requestsError ? (
             <div className="text-center p-8 text-sm font-bold" style={{ color: RED }}>{requestsError}</div>
           ) : requests.length > 0 ? (

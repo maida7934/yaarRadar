@@ -3,54 +3,11 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/authState";
 import { ApiError } from "@/lib/api";
+import { supabase } from "@/lib/supabaseClient";
 import { NotchedFrame } from "@/components/ui/NotchedFrame";
+import { EyeIcon } from "@/components/ui/EyeIcon";
 
 type Mode = "login" | "signup";
-
-/** Standard stroke-based eye / eye-off toggle icon (not the pixel-art style
- * used elsewhere in this UI) -- open eye when the password is visible, eye
- * with a slash through it when hidden. */
-function EyeIcon({ open }: { open: boolean }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      {open ? (
-        <>
-          <path
-            d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-            stroke="#6b403b"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx={12} cy={12} r={3} stroke="#6b403b" strokeWidth={2} />
-        </>
-      ) : (
-        <>
-          <path
-            d="M3 3l18 18"
-            stroke="#6b403b"
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-          <path
-            d="M10.58 5.14A10.6 10.6 0 0 1 12 5c7 0 11 7 11 7a17.6 17.6 0 0 1-3.22 4.19M6.5 6.61C3.55 8.36 1 12 1 12s4 7 11 7a10.3 10.3 0 0 0 4.24-.9"
-            stroke="#6b403b"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M9.9 9.9A3 3 0 0 0 12 15a3 3 0 0 0 2.1-.9"
-            stroke="#6b403b"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </>
-      )}
-    </svg>
-  );
-}
 
 export function LoginScreen() {
   const { login, signup } = useAuth();
@@ -60,8 +17,72 @@ export function LoginScreen() {
   const [username, setUsername] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [googleNotice, setGoogleNotice] = useState(false);
+  const [googleNotice, setGoogleNotice] = useState<string | null>(null);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+
+  // Hands off to Google and comes back to the app root, where supabase-js
+  // exchanges the fragment for a session (detectSessionInUrl) and AuthGate
+  // takes it from there.
+  //
+  // Note this bypasses the backend's /auth/signup entirely, so a first-time
+  // Google user arrives with no username -- Google supplies a name and an
+  // email, not the 3-20 char handle everything here keys off. UsernameSetup
+  // is what collects it afterwards; see AuthGate.
+  //
+  // Requires the Google provider to be enabled in the Supabase dashboard.
+  // Until it is, Supabase answers with "Unsupported provider", which is
+  // surfaced below rather than failing silently.
+  const signInWithGoogle = async () => {
+    setGoogleNotice(null);
+    setGoogleSubmitting(true);
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      if (oauthError) throw oauthError;
+      // On success the browser is navigating away; leave the button
+      // disabled rather than flickering back to its idle state.
+    } catch (err) {
+      setGoogleNotice(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not start Google sign-in.",
+      );
+      setGoogleSubmitting(false);
+    }
+  };
   const [showPassword, setShowPassword] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
+
+  // Sends the recovery email for whatever's in the email field. redirectTo
+  // is required: without it Supabase falls back to the project's Site URL,
+  // which lands the user on the app root with a recovery fragment nothing
+  // handles -- the link appears to do nothing at all.
+  //
+  // The notice is deliberately the same whether or not that address has an
+  // account. Saying "no account with that email" would turn this box into a
+  // way to test which addresses are registered.
+  const sendReset = async () => {
+    const address = email.trim();
+    if (!address) {
+      setError("Enter your email address first, then tap this again.");
+      return;
+    }
+    setError(null);
+    setResetSending(true);
+    try {
+      await supabase.auth.resetPasswordForEmail(address, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      setResetNotice(`If ${address} has an account, a reset link is on its way.`);
+    } catch {
+      setResetNotice("Could not send the reset email. Try again in a moment.");
+    } finally {
+      setResetSending(false);
+    }
+  };
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -241,6 +262,31 @@ export function LoginScreen() {
               </div>
             </label>
 
+            {mode === "login" && (
+              <button
+                type="button"
+                onClick={sendReset}
+                disabled={resetSending}
+                className="text-left"
+                style={{
+                  fontFamily: "var(--font-pixel)",
+                  fontSize: 9,
+                  color: "var(--px-muted)",
+                  border: "none",
+                  background: "none",
+                  padding: 0,
+                  textDecoration: "underline",
+                  opacity: resetSending ? 0.5 : 1,
+                }}
+              >
+                {resetSending ? "Sending..." : "Forgotten your password?"}
+              </button>
+            )}
+
+            {resetNotice && (
+              <p className="text-[10px]" style={{ color: "#365224" }}>{resetNotice}</p>
+            )}
+
             {error && (
               <p className="text-[10px] font-bold" style={{ color: "var(--px-red)" }}>
                 {error}
@@ -269,7 +315,8 @@ export function LoginScreen() {
 
             <button
               type="button"
-              onClick={() => setGoogleNotice(true)}
+              onClick={signInWithGoogle}
+              disabled={googleSubmitting}
               className="px-btn px-btn-ghost w-full p-3"
               style={{
                 fontSize: 11,
@@ -281,8 +328,8 @@ export function LoginScreen() {
               SIGN IN WITH GOOGLE
             </button>
             {googleNotice && (
-              <p className="text-[10px] text-center" style={{ color: "var(--px-muted)" }}>
-                Google sign-in isn&apos;t set up yet.
+              <p className="text-[10px] text-center" style={{ color: "var(--px-red)" }}>
+                {googleNotice}
               </p>
             )}
           </form>

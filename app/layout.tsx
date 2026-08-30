@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: "Find your friends — straight-line distance and bearing, in real time.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full flex flex-col">
