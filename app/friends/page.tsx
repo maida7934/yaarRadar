@@ -289,7 +289,7 @@ export default function FriendsPage() {
 
   return (
     <div className="flex flex-1 justify-center" style={{ backgroundColor: PAGE_OUTER_BG }}>
-      <div className="w-full relative min-h-dvh flex flex-col pb-[76px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
+      <div className="w-full relative h-dvh flex flex-col pb-[76px] overflow-hidden" style={{ backgroundColor: SKY_BOTTOM }}>
 
         {/* Page background -- tiled striped pattern, repeated at a smaller
             tile size than its native 736x920 so the stripes read as a
