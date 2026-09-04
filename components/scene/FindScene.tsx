@@ -175,7 +175,17 @@ const FRIEND_LOCATION_STALE_MS = LOCATION_PUSH_INTERVAL_MS * 3;
  * come back into view on their own.
  */
 function distanceBearingToWorldOffset(distanceMeters: number, bearingDegrees: number) {
-  const radius = Math.max(0, distanceMeters) / METERS_PER_WORLD_UNIT;
+  let radius = Math.max(0, distanceMeters) / METERS_PER_WORLD_UNIT;
+  
+  if (distanceMeters > 50 && distanceMeters <= 100) {
+    const r50 = 50 / METERS_PER_WORLD_UNIT;
+    const r100 = 150; // max radius to stay in a 360px wide frame
+    radius = r50 + ((distanceMeters - 50) / 50) * (r100 - r50);
+  } else if (distanceMeters > 100) {
+    const r100 = 150;
+    radius = r100 + ((distanceMeters - 100) / METERS_PER_WORLD_UNIT);
+  }
+
   const rad = (bearingDegrees * Math.PI) / 180;
   // bearing 0 = north = "up" on screen = -Y, matching the existing
   // atan2(dx, -dy) convention the HUD/encounter code below already uses.
