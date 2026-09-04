@@ -7,9 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:native": "cross-env BUILD_TARGET=native next build",
+    "sync:android": "npm run build:native && cap sync android",
+    "apk": "npm run sync:android && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/geolocation": "^7.1.8",
     "@supabase/supabase-js": "^2.112.2",
     "framer-motion": "^13.0.0",
     "gsap": "^3.15.0",
@@ -23,6 +33,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.5",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "jsdom": "^29.1.1",

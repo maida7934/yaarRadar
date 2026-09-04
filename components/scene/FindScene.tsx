@@ -12,6 +12,7 @@ import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
 import { useAuth } from "@/lib/authState";
 import { supabase } from "@/lib/supabaseClient";
+import { NATIVE_REDIRECT_URL, isNative } from "@/lib/nativeAuth";
 import { getFriends, pushLocation, getLocations, type Friend } from "@/lib/api";
 import { haversineDistance, initialBearing, type Coords } from "@/utils/geo";
 import { ConnectionLine } from "./ConnectionLine";
@@ -586,7 +587,7 @@ export function FindScene() {
       // recovery fragment nothing handles, so the emailed link appears to
       // do nothing. /reset-password is the page that consumes it.
       const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: isNative() ? NATIVE_REDIRECT_URL : `${window.location.origin}/reset-password`,
       });
       if (error) throw error;
       setPasswordSuccess(`Reset link sent to ${user.email}.`);

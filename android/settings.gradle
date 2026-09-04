@@ -1,0 +1,14 @@
+// Capacitor 7 compiles against Java 21, and this machine (like most CI
+// images) has 17. Rather than make every contributor install a second JDK by
+// hand, this resolver lets Gradle fetch a matching toolchain itself the first
+// time it's needed -- one download, then cached. Must be the first thing in
+// this file: Gradle only accepts a settings plugins block at the top.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+include ':app'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+apply from: 'capacitor.settings.gradle'

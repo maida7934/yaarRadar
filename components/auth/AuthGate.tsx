@@ -8,6 +8,7 @@ import { UsernameSetup } from "./UsernameSetup";
 import { HowToUsePopup } from "@/components/ui/HowToUsePopup";
 import { getMe } from "@/lib/api";
 import { LocationGateProvider } from "@/lib/locationGate";
+import { listenForAuthDeepLinks } from "@/lib/nativeAuth";
 
 /** Reachable without a session. The password-recovery link arrives before
  * supabase-js has exchanged its fragment for one, so gating this route on
@@ -33,6 +34,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // account changes rather than needing a reset write on logout (which would
   // be a synchronous setState inside the effect below).
   const [usernameCheck, setUsernameCheck] = useState<{ userId: string; needs: boolean } | null>(null);
+
+  // On device, Google sign-in and the reset email both hand off to an
+  // external browser and come back via a yaarradar:// link. Nothing parses
+  // that automatically -- a deep link never reaches the address bar
+  // supabase-js watches -- so without this listener the user returns to an
+  // app that has no idea they just signed in. No-op on the web.
+  useEffect(() => listenForAuthDeepLinks(), []);
 
   useEffect(() => {
     if (!accessToken || !user) return;

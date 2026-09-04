@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              Deep link back into the app.
+
+              Both Google sign-in and the password-reset email hand off to an
+              external browser, and without this there is no way back: the
+              browser lands on a URL it owns, the session is created in the
+              wrong place, and the app never learns anything happened. This
+              claims yaarradar:// so those redirects reopen the app with the
+              tokens attached (see lib/nativeAuth.ts).
+
+              A custom scheme rather than https App Links deliberately. App
+              Links additionally require hosting assetlinks.json on the
+              domain and are verified by Google's servers, which is more
+              moving parts than a sideloaded APK needs. The tradeoff is that
+              a custom scheme isn't exclusive to this app; it's fine here
+              because the tokens are single-use and short-lived, but it is
+              the reason to move to App Links before any public release.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="yaarradar" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Location. COARSE is declared alongside FINE because Android 12+ lets the
+      user grant only approximate location from the same dialog; without it
+      that choice denies the app outright instead of degrading to coarse.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!--
+      The whole reason for shipping an APK. A browser tab is suspended when
+      the screen locks or the user switches away, which stops watchPosition
+      dead, which is fatal for an app used while walking with the phone pocketed.
+      This is what a web build cannot do at all.
+
+      Android 10+ treats it as a separate, second-stage grant: it cannot be
+      requested in the same dialog as foreground location, and the user has to
+      pick "Allow all the time" in system settings. So the app must work with
+      foreground-only permission and treat background as an upgrade.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!--
+      Background location is only actually delivered while a foreground
+      service is running, and from Android 14 that service must declare its
+      type. The persistent notification it requires isn't optional; it is the
+      platform making continuous tracking visible to the user, which is right.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Android 13+ gates that notification behind its own runtime grant. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Lets the tracking service survive a reboot rather than silently
+         staying dead until the app is opened again. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Declared so the Play install filter and the system both know GPS is
+         wanted but not mandatory, so a device without it still installs and
+         falls back to network positioning. -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+</manifest>

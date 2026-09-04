@@ -1,0 +1,46 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.2'
+        classpath 'com.google.gms:google-services:4.4.2'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    // Capacitor 7's modules compile against Java 21 (they set source/target
+    // compatibility to 21), but Gradle runs javac from whatever JDK launched
+    // it -- 17 here -- which fails with "invalid source release: 21".
+    //
+    // The settings.gradle resolver can fetch a JDK 21, but only if something
+    // actually asks for a toolchain, and nothing did: declaring source
+    // compatibility is not the same as requesting a compiler. This asks, for
+    // every module, which is what triggers the download (once, then cached)
+    // and lets the build work on a machine with only JDK 17 installed.
+    plugins.withId("java-base") {
+        java {
+            toolchain {
+                languageVersion = JavaLanguageVersion.of(21)
+            }
+        }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

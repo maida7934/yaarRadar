@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import type { Coords } from "@/utils/geo";
+import { BackgroundGeolocation } from "./useNativeGeolocation";
 
 // Browsers/devices commonly deliver a fast, coarse fix first (WiFi/cell-
 // tower-based, easily off by hundreds of meters to kilometers) before a
@@ -37,6 +39,17 @@ const ACCURACY_GRACE_PERIOD_MS = 15000;
 // latitude/longitude, and that shouldn't be sitting in the console of a
 // shipped build. Flip to true while actively debugging a device, then back.
 const DEBUG_GEO = false;
+
+/**
+ * Whether to take a fix, given how accurate it is and how long we've been
+ * waiting. Shared by the browser and native watchers so the two can't drift
+ * into disagreeing about what counts as a usable position.
+ */
+function acceptFix(accuracyMeters: number, watchStartedAt: number, hasAcceptedGoodFix: boolean) {
+  const isGood = accuracyMeters <= MAX_ACCEPTABLE_ACCURACY_METERS;
+  const withinGracePeriod = Date.now() - watchStartedAt < ACCURACY_GRACE_PERIOD_MS;
+  return { isGood, accept: isGood || (!hasAcceptedGoodFix && !withinGracePeriod) };
+}
 
 export interface GeolocationState {
   coords: Coords | null;
@@ -78,6 +91,80 @@ export function useGeolocation(enabled: boolean): GeolocationState {
       return;
     }
 
+    // ── Native (APK) ────────────────────────────────────────────────────
+    // Placed before the browser checks below because none of them apply: the
+    // WebView's own geolocation would be suspended with the app exactly like
+    // a tab, which is the problem the APK exists to solve.
+    if (Capacitor.isNativePlatform()) {
+      watchStartedAtRef.current = Date.now();
+      hasAcceptedGoodFixRef.current = false;
+
+      let watcherId: string | null = null;
+      let cancelled = false;
+
+      BackgroundGeolocation.addWatcher(
+        {
+          // Android shows this while the foreground service runs. It can't be
+          // hidden -- the platform insists continuous tracking is visible,
+          // which is right, so it may as well say something useful.
+          backgroundTitle: "YaarRadar is sharing your location",
+          backgroundMessage: "So your friend can see how far away you are.",
+          requestPermissions: true,
+          // Never open on a cached fix: a stale one puts a friend where they
+          // used to be, which is worse than briefly having no position.
+          stale: false,
+          // Metres of movement before another fix. Below MIN_MOVEMENT_METERS
+          // in the scene, so real walking still produces updates, without
+          // waking the radio for GPS jitter while standing still.
+          distanceFilter: 5,
+        },
+        (position, err) => {
+          if (err) {
+            if (DEBUG_GEO) console.debug(`[useGeolocation] native error: ${err.code} ${err.message}`);
+            setError(
+              err.code === "NOT_AUTHORIZED"
+                ? "Location is turned off for YaarRadar. Open Android Settings > Apps > YaarRadar > Permissions > Location and choose \"Allow all the time\"."
+                : err.message || "Could not get your location.",
+            );
+            return;
+          }
+          if (!position) return;
+
+          const { isGood, accept } = acceptFix(
+            position.accuracy,
+            watchStartedAtRef.current,
+            hasAcceptedGoodFixRef.current,
+          );
+          if (DEBUG_GEO) {
+            console.debug(`[useGeolocation] native fix accuracy=${position.accuracy.toFixed(0)}m accept=${accept}`);
+          }
+          if (!accept) return;
+          if (isGood) hasAcceptedGoodFixRef.current = true;
+          setCoords({ latitude: position.latitude, longitude: position.longitude });
+          setAccuracy(position.accuracy);
+          setError(null);
+        },
+      )
+        .then((id) => {
+          // The effect can be torn down while addWatcher is still resolving;
+          // without this the watcher would outlive it and keep the service
+          // (and its notification) alive after location was switched off.
+          if (cancelled) {
+            BackgroundGeolocation.removeWatcher({ id }).catch(() => {});
+            return;
+          }
+          watcherId = id;
+        })
+        .catch((e: unknown) => {
+          setError(e instanceof Error ? e.message : "Could not start location tracking.");
+        });
+
+      return () => {
+        cancelled = true;
+        if (watcherId) BackgroundGeolocation.removeWatcher({ id: watcherId }).catch(() => {});
+      };
+    }
+
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       queueMicrotask(() => setError("Geolocation isn't available on this device."));
       return;
@@ -109,12 +196,11 @@ export function useGeolocation(enabled: boolean): GeolocationState {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const fixAccuracy = position.coords.accuracy;
-        const isGood = fixAccuracy <= MAX_ACCEPTABLE_ACCURACY_METERS;
-        const withinGracePeriod = Date.now() - watchStartedAtRef.current < ACCURACY_GRACE_PERIOD_MS;
-        // Accept a good fix outright; otherwise only accept as a fallback
-        // while still within the grace period and nothing good has landed
-        // yet -- see ACCURACY_GRACE_PERIOD_MS above.
-        const accept = isGood || (!hasAcceptedGoodFixRef.current && !withinGracePeriod);
+        const { isGood, accept } = acceptFix(
+          fixAccuracy,
+          watchStartedAtRef.current,
+          hasAcceptedGoodFixRef.current,
+        );
 
         if (DEBUG_GEO) {
           console.debug(

@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/authState";
 import { ApiError } from "@/lib/api";
 import { supabase } from "@/lib/supabaseClient";
+import { NATIVE_REDIRECT_URL, isNative, signInWithGoogleNative } from "@/lib/nativeAuth";
 import { NotchedFrame } from "@/components/ui/NotchedFrame";
 import { EyeIcon } from "@/components/ui/EyeIcon";
 
@@ -36,11 +37,18 @@ export function LoginScreen() {
     setGoogleNotice(null);
     setGoogleSubmitting(true);
     try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: window.location.origin },
-      });
-      if (oauthError) throw oauthError;
+      if (isNative()) {
+        // Different path on device: Google blocks its consent screen inside
+        // embedded WebViews, and the redirect has to come back through a
+        // deep link rather than a page navigation. See lib/nativeAuth.ts.
+        await signInWithGoogleNative();
+      } else {
+        const { error: oauthError } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: window.location.origin },
+        });
+        if (oauthError) throw oauthError;
+      }
       // On success the browser is navigating away; leave the button
       // disabled rather than flickering back to its idle state.
     } catch (err) {
@@ -74,7 +82,10 @@ export function LoginScreen() {
     setResetSending(true);
     try {
       await supabase.auth.resetPasswordForEmail(address, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        // On device the email is opened in a browser, so a web URL would
+        // strand the user there with a session the app can't see. The deep
+        // link reopens the app instead.
+        redirectTo: isNative() ? NATIVE_REDIRECT_URL : `${window.location.origin}/reset-password`,
       });
       setResetNotice(`If ${address} has an account, a reset link is on its way.`);
     } catch {
