@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 export const DEFAULT_BACKGROUND_ID = "/yaarRadar-assets/bg-wide.jpg";
 
