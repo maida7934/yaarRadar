@@ -239,8 +239,6 @@ export default function MePage() {
     }
   };
 
-  const [backgroundId, setBackgroundId] = useState("road");
-
   const activeCharacter = CHARACTER_OPTIONS.find((c) => c.id === characterId) ?? CHARACTER_OPTIONS[0];
   const avatarPfp = characterLoading ? "/pixelated-icons/profile-avatar.png" : activeCharacter.pfp;
 
