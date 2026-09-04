@@ -10,10 +10,11 @@ import { CHARACTER_OPTIONS } from "@/lib/characterAvatars";
 import { ApiError, getMe, updateMe } from "@/lib/api";
 import { rememberUser } from "@/lib/userDirectory";
 import { usernameCooldownDaysLeft } from "@/utils/usernameCooldown";
+import { useBackground, DEFAULT_BACKGROUND_ID } from "@/lib/backgroundState";
 
 const BACKGROUND_OPTIONS = [
-  { id: "road", label: "Stone Road" },
-  { id: "grass", label: "Grass Field" },
+  { id: DEFAULT_BACKGROUND_ID, label: "Stone Road", src: DEFAULT_BACKGROUND_ID },
+  { id: "/yaarRadar-assets/layout_2.png", label: "Sunset City", src: "/yaarRadar-assets/layout_2.png" },
 ];
 
 type ActiveModal = "profile" | "layout" | null;
@@ -23,6 +24,7 @@ const DEFAULT_BIO = "Just here to find my friends.";
 
 interface ProfileMetadata {
   gender?: string;
+  bio?: string;
 }
 
 function ProfileLeaf({ className, style }: { className?: string, style?: React.CSSProperties }) {
@@ -108,7 +110,8 @@ export default function MePage() {
   const { characterId, setCharacterId, loading: characterLoading } = useCharacter();
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [layoutTab, setLayoutTab] = useState<"character" | "background">("character");
-
+  const { backgroundId, setBackgroundId } = useBackground();
+  
   // The profile card's outline is drawn to its *actual* measured size (not a
   // guessed viewBox) so the notched corners never stretch/distort -- the
   // card's height is content-driven and varies, so a fixed viewBox aspect
@@ -903,8 +906,8 @@ export default function MePage() {
                       }}
                     >
                       <div
-                        className={`w-10 h-10 border-2 border-[var(--px-border)] ${option.id === "road" ? "px-bg-road" : ""}`}
-                        style={option.id === "grass" ? { backgroundImage: "url(/backgrounds/ground-tile.png)", backgroundSize: "cover" } : undefined}
+                        className={`w-10 h-10 border-2 border-[var(--px-border)]`}
+                        style={{ backgroundImage: `url(${option.src})`, backgroundSize: "cover", backgroundPosition: "center" }}
                       />
                       <span className="text-xs font-bold" style={{ color: "var(--px-text)" }}>
                         {option.label}

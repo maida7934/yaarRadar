@@ -10,6 +10,7 @@ import { LocationPrimer } from "@/components/ui/LocationPrimer";
 import { LOCATION_PRIMER_STORAGE_KEY, useLocationGate } from "@/lib/locationGate";
 import { useDistanceBearing } from "@/hooks/useDistanceBearing";
 import { useCharacter } from "@/lib/characterState";
+import { useBackground } from "@/lib/backgroundState";
 import { useAuth } from "@/lib/authState";
 import { supabase } from "@/lib/supabaseClient";
 import { NATIVE_REDIRECT_URL, isNative } from "@/lib/nativeAuth";
@@ -469,6 +470,7 @@ export function FindScene() {
 
   // Character selection
   const { characterId, loading: characterLoading } = useCharacter();
+  const { backgroundId } = useBackground();
   const myCharacterBundle = CHARACTER_SPRITE_BUNDLES[characterId || DEFAULT_CHARACTER_ID] ?? CHARACTER_SPRITE_BUNDLES[DEFAULT_CHARACTER_ID];
 
   // Friend selection
@@ -1369,7 +1371,7 @@ export function FindScene() {
           width: WORLD_WIDTH * worldScale,
           height: WORLD_HEIGHT * worldScale,
           backgroundColor: "#3d5c33",
-          backgroundImage: "url(/yaarRadar-assets/bg-wide.jpg)",
+          backgroundImage: `url(${backgroundId})`,
           backgroundSize: "auto 100%",
           backgroundPosition: "center",
           backgroundRepeat: "no-repeat",
